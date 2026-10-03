@@ -1,0 +1,32 @@
+name: Build and test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          pip install numpy pyinstaller
+          choco install ffmpeg -y --no-progress
+      - name: Self-test on synthetic data
+        run: python tests/test_synthetic.py
+      - name: Build exe
+        run: pyinstaller --onefile --noconsole --name ShadowPlayTrackSplitter gui.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ShadowPlayTrackSplitter-windows
+          path: dist/ShadowPlayTrackSplitter.exe
+      - name: Attach exe to the release (only for tags like v1.0)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/ShadowPlayTrackSplitter.exe

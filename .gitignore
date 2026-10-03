@@ -1,0 +1,7 @@
+__pycache__/
+build/
+dist/
+*.spec
+*_raw.aac
+*_features.npz
+*_report.txt
