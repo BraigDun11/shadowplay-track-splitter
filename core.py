@@ -35,8 +35,9 @@ MSG = {
         "packets": "    packets: {n} (~{min:.1f} min), {sr} Hz",
         "s3": "3/5 Analysing audio (a few minutes for long recordings)...",
         "mismatch": "    WARNING: decoded frames ({a}) and packets ({b}) differ",
-        "no_sched": "Could not detect the chunk schedule. This recording is probably structured differently. "
-                    "A diagnostic file was saved: {path}",
+        "no_sched": "No mixed audio tracks were found in this file. If it is a normal video that already has "
+                    "separate tracks, use the 'Extract tracks' mode instead. Otherwise the recording may be too short "
+                    "or structured differently. A diagnostic file was saved: {path}",
         "sched": "    schedule: period {p} packets (mono chunk {lm}, stereo chunk {ls})",
         "s4": "4/5 Splitting. Schedule shifts found: {n}",
         "shift_at": "      around {t}",
@@ -52,6 +53,19 @@ MSG = {
         "e_mux": "Could not build the video, but tracks were saved: {a} and {b}",
         "done": "DONE: {out}",
         "done2": "Tracks separately: {a} and {b}",
+        "moov": "This file is damaged: it has no index ('moov atom not found'), so it cannot be read at all.\n"
+                "First repair the video (for example with untrunc and a healthy reference recording) "
+                "and open the REPAIRED file here.",
+        "x1": "Reading audio tracks...",
+        "x_found": "    audio tracks: {n}",
+        "x_track": "      track {i}: {codec}{title}, {size:.1f} MB",
+        "x_none": "No audio tracks found in this file.",
+        "x_one": "This video has only one audio track - there is nothing to separate.",
+        "x_bad": "Invalid track number.",
+        "x_video": "Saving video with track {i}...",
+        "x_audio": "Saving track {i} as an audio file...",
+        "x_done": "DONE: {out}",
+        "x_done2": "Audio files: {files}",
     },
     "ru": {
         "no_ffmpeg": "Не найден ffmpeg. Положите ffmpeg.exe рядом с программой, добавьте его в PATH или выберите вручную.",
@@ -61,8 +75,9 @@ MSG = {
         "packets": "    пакетов: {n} (~{min:.1f} мин), {sr} Гц",
         "s3": "3/5 Анализирую звук (для длинных записей несколько минут)...",
         "mismatch": "    ВНИМАНИЕ: число кадров звука ({a}) и пакетов ({b}) не совпало",
-        "no_sched": "Не удалось определить расписание кусков. Скорее всего, запись устроена иначе. "
-                    "Диагностический файл сохранён: {path}",
+        "no_sched": "Смешанных аудиодорожек в этом файле не найдено. Если это обычное видео, где дорожки уже "
+                    "раздельные, используйте режим «Достать дорожки». Иначе запись может быть слишком короткой "
+                    "или устроена иначе. Диагностический файл сохранён: {path}",
         "sched": "    расписание: период {p} пакетов (моно-кусок {lm}, стерео-кусок {ls})",
         "s4": "4/5 Разделяю. Сдвигов расписания найдено: {n}",
         "shift_at": "      около {t}",
@@ -78,6 +93,19 @@ MSG = {
         "e_mux": "Не удалось собрать видео, но дорожки сохранены: {a} и {b}",
         "done": "ГОТОВО: {out}",
         "done2": "Дорожки отдельно: {a} и {b}",
+        "moov": "Этот файл повреждён: у него нет индекса («moov atom not found»), поэтому его вообще нельзя прочитать.\n"
+                "Сначала восстановите видео (например, программой untrunc и целым эталонным видео), "
+                "а здесь откройте уже ВОССТАНОВЛЕННЫЙ файл.",
+        "x1": "Читаю аудиодорожки...",
+        "x_found": "    аудиодорожек: {n}",
+        "x_track": "      дорожка {i}: {codec}{title}, {size:.1f} МБ",
+        "x_none": "В этом файле нет аудиодорожек.",
+        "x_one": "В этом видео одна аудиодорожка - разделять нечего.",
+        "x_bad": "Неверный номер дорожки.",
+        "x_video": "Сохраняю видео с дорожкой {i}...",
+        "x_audio": "Сохраняю дорожку {i} отдельным аудиофайлом...",
+        "x_done": "ГОТОВО: {out}",
+        "x_done2": "Аудиофайлы: {files}",
     },
 }
 
@@ -287,6 +315,104 @@ def build_tracks(data, frames, runs, n, P, Lm, sil):
     return stereo, mono, filled
 
 
+# ----------------------------------------------------- normal videos: tracks
+AUDIO_EXT = {"aac": ".m4a", "mp3": ".mp3", "opus": ".opus", "vorbis": ".ogg", "flac": ".flac",
+             "ac3": ".ac3", "eac3": ".eac3", "alac": ".m4a"}
+
+
+def probe_audio(ffmpeg, video, lang="en", sizes=True):
+    """List of audio streams: [{'index', 'codec', 'title', 'mb'}] (index counts audio streams from 0)."""
+    M = MSG.get(lang, MSG["en"])
+    r = _run([ffmpeg, "-hide_banner", "-i", video], text=True)
+    err = r.stderr or ""
+    if "moov atom not found" in err:
+        raise SplitError(M["moov"])
+    streams = []
+    cur = None
+    for line in err.splitlines():
+        m_ = re.search(r"Stream #0:\d+.*?: (\w+): (\w+)", line)
+        if m_:
+            cur = None
+            if m_.group(1) == "Audio":
+                cur = {"index": len(streams), "codec": m_.group(2), "title": "", "mb": 0.0}
+                streams.append(cur)
+            continue
+        if cur is not None:
+            t_ = re.match(r"\s+(title|handler_name)\s*:\s*(.+)$", line)
+            if t_:
+                val = t_.group(2).strip()
+                generic = re.search(r"(?i)(handler|handle$|core media|sound media|audio media)", val)
+                if t_.group(1) == "title" or not generic:
+                    cur["title"] = val
+    for s in (streams if sizes else []):
+        rr = _run([ffmpeg, "-hide_banner", "-i", video, "-map", "0:a:%d" % s["index"],
+                   "-c", "copy", "-f", "null", "-"], text=True)
+        mm = re.findall(r"audio:(\d+)\s*(?:KiB|kB|KB)", rr.stderr or "")
+        s["mb"] = int(mm[-1]) / 1024.0 if mm else 0.0
+    return streams
+
+
+def _label(s):
+    lab = re.sub(r"[^\w\-]+", "_", s["title"], flags=re.UNICODE).strip("_") if s["title"] else ""
+    return lab or "track%d" % (s["index"] + 1)
+
+
+def extract_tracks(video, ffmpeg=None, keep=0, save_others=True, log=print, progress=None, lang="en"):
+    """Normal video with several audio tracks: write a video that keeps only track `keep`
+    (0-based) and, optionally, every other track as a separate audio file. No re-encoding."""
+    M = MSG.get(lang, MSG["en"])
+
+    def say(key, **kw):
+        log(M[key].format(**kw))
+
+    ff = find_ffmpeg(ffmpeg)
+    if not ff:
+        raise SplitError(M["no_ffmpeg"])
+    say("x1")
+    streams = probe_audio(ff, video, lang)
+    if not streams:
+        raise SplitError(M["x_none"])
+    say("x_found", n=len(streams))
+    for s in streams:
+        say("x_track", i=s["index"] + 1, codec=s["codec"],
+            title=(" '%s'" % s["title"]) if s["title"] else "", size=s["mb"])
+    if len(streams) < 2:
+        raise SplitError(M["x_one"])
+    if not (0 <= keep < len(streams)):
+        raise SplitError(M["x_bad"])
+    base = os.path.splitext(video)[0]
+    k = streams[keep]
+    out = "%s_video_%s.mp4" % (base, _label(k))
+    say("x_video", i=keep + 1)
+    r = _run([ff, "-y", "-v", "error", "-i", video, "-map", "0:v", "-map", "0:a:%d" % keep,
+              "-c", "copy", out], text=True)
+    if r.returncode != 0:
+        raise SplitError(M["e_extract"].format(err=r.stderr))
+    if progress:
+        progress(0.5)
+    files = []
+    if save_others:
+        others = [s for s in streams if s["index"] != keep]
+        for n_, s in enumerate(others):
+            ext = AUDIO_EXT.get(s["codec"], ".mka")
+            fn = "%s_audio_%s%s" % (base, _label(s), ext)
+            say("x_audio", i=s["index"] + 1)
+            r = _run([ff, "-y", "-v", "error", "-i", video, "-map", "0:a:%d" % s["index"],
+                      "-vn", "-c", "copy", fn], text=True)
+            if r.returncode != 0:
+                raise SplitError(M["e_extract"].format(err=r.stderr))
+            files.append(fn)
+            if progress:
+                progress(0.5 + 0.5 * (n_ + 1) / len(others))
+    if progress:
+        progress(1.0)
+    say("x_done", out=out)
+    if files:
+        say("x_done2", files=", ".join(files))
+    return {"video": out, "audio": files}
+
+
+
 # ------------------------------------------------------------------ main
 def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_scale=1.0,
             save_features=False, log=print, progress=None, lang="en"):
@@ -313,6 +439,8 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
         r = _run([ff, "-y", "-v", "error", "-i", video, "-map", "0:a:%d" % stream,
                   "-c:a", "copy", "-f", "adts", raw], text=True)
         if r.returncode != 0 or not os.path.exists(raw):
+            if "moov atom not found" in (r.stderr or ""):
+                raise SplitError(M["moov"])
             raise SplitError(M["e_extract"].format(err=r.stderr))
         if progress:
             progress(0.05)
@@ -402,7 +530,8 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             cmd += ["-itsscale", "%.6f" % scale]
         cmd += ["-i", video, "-i", fa, "-i", fb, "-map", "0:v:0", "-map", "1:a", "-map", "2:a",
                 "-c", "copy", "-bsf:a", "aac_adtstoasc",
-                "-metadata:s:a:0", "title=PC", "-metadata:s:a:1", "title=Mic", out]
+                "-metadata:s:a:0", "title=PC", "-metadata:s:a:1", "title=Mic",
+                "-metadata:s:a:0", "handler_name=PC", "-metadata:s:a:1", "handler_name=Mic", out]
         r = _run(cmd, text=True)
         if r.returncode != 0:
             log(r.stderr)

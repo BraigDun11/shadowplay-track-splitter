@@ -16,9 +16,17 @@ def main():
     ap.add_argument("--save-features", action="store_true", help="save a diagnostic .npz file")
     ap.add_argument("--ffmpeg", help="path to ffmpeg")
     ap.add_argument("--lang", choices=["en", "ru"], default=None)
+    ap.add_argument("--extract", action="store_true",
+                    help="normal video with several audio tracks: keep one track in the video "
+                         "and save the others as audio files")
+    ap.add_argument("--keep", type=int, default=1, help="with --extract: number of the track to keep (1, 2, ...)")
+    ap.add_argument("--no-save-others", action="store_true", help="with --extract: do not save other tracks")
     a = ap.parse_args()
     lang = a.lang or core.detect_lang()
     try:
+        if a.extract:
+            core.extract_tracks(a.video, a.ffmpeg, a.keep - 1, not a.no_save_others, print, None, lang)
+            return
         core.process(a.video, a.ffmpeg, a.stream, a.swap, a.match_video, a.video_scale,
                      a.save_features, print, None, lang)
     except core.SplitError as e:

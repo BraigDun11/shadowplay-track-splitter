@@ -40,7 +40,20 @@ Options:
   video is shorter than the sound and the lag grows towards the end. This option rescales video timestamps
   (no re-encoding). Use it when the log says the audio is much longer than the video.
 
-Command line: `python cli.py video.mp4 [--swap] [--match-video] [--save-features]`.
+### Extract tracks from a normal video
+
+If the video is fine and already has several audio tracks (for example PC + mic), the second mode
+**Extract tracks** keeps one track in the video and saves the others as separate audio files, without
+re-encoding. Example: a video with PC sound only, plus a separate audio file with your microphone.
+
+### Important: repair the video first
+
+If the program says `moov atom not found`, the file is the *original damaged recording* - it has no index and
+cannot be read by any program. Repair it first (for example with [untrunc](https://github.com/anthwlock/untrunc)
+and a healthy reference video), then open the **repaired** file here.
+
+Command line: `python cli.py video.mp4 [--swap] [--match-video] [--save-features]`
+or `python cli.py video.mp4 --extract --keep 1` (extract mode).
 
 ## How it works (short)
 
@@ -87,6 +100,13 @@ License: MIT. Author: [BraigDun11](https://github.com/BraigDun11). Developed tog
    программой, добавьте в PATH или выберите кнопкой в окне.
 3. Запустите, выберите восстановленное видео, нажмите **«Разделить дорожки»**.
 4. Рядом с видео появятся `*_fixed.mp4` (две дорожки), `*_track1_PC.m4a`, `*_track2_MIC.m4a`, `*_report.txt`.
+
+**Режим «Достать дорожки».** Если видео целое и в нём уже есть несколько дорожек (ПК + микрофон), программа
+оставит в видео одну из них, а остальные сохранит отдельными аудиофайлами, без перекодирования.
+
+**Важно.** Если пишет `moov atom not found`, это исходная повреждённая запись: у неё нет индекса, и её не
+читает ни одна программа. Сначала восстановите видео (например, untrunc), потом откройте здесь
+**восстановленный** файл.
 
 Если ПК и микрофон оказались наоборот, включите **«Поменять дорожки местами»**. Если звук всё сильнее
 отстаёт от картинки к концу, включите **«Растянуть видео под длину звука»**.

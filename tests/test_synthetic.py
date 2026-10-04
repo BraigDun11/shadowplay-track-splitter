@@ -78,6 +78,20 @@ def main():
     assert foreign == 0
     assert 60 <= silence <= 70, silence   # 47 + 18 = 65 expected
     assert abs(len(pc) - len(mic)) <= 1
+
+    # --- normal video with two separate tracks: extraction mode
+    two = os.path.join(tmp, "two.mp4")
+    ff("-f", "lavfi", "-i", "testsrc=d=60:r=30:s=320x240", "-i", A, "-i", Bf, "-t", "60",
+       "-map", "0:v", "-map", "1:a", "-map", "2:a", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "copy",
+       "-metadata:s:a:0", "handler_name=PC", "-metadata:s:a:1", "handler_name=Mic", two)
+    info = core.probe_audio(core.find_ffmpeg(), two)
+    assert [s["title"] for s in info] == ["PC", "Mic"], info
+    assert all(s["mb"] > 0.1 for s in info), info
+    res2 = core.extract_tracks(two, keep=0, save_others=True, lang="en")
+    assert res2["video"].endswith("_video_PC.mp4") and len(res2["audio"]) == 1, res2
+    assert res2["audio"][0].endswith("_audio_Mic.m4a"), res2
+    assert len(core.probe_audio(core.find_ffmpeg(), res2["video"])) == 1
+    print("EXTRACT OK")
     print("OK")
 
 
