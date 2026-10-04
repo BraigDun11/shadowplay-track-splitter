@@ -151,6 +151,7 @@ class App:
                                   values=[self.t["no_audio"]])
         self.combo.pack(side="left", padx=8)
         self.keep.set(self.t["no_audio"])
+        self.combo.bind("<<ComboboxSelected>>", lambda e: self.update_kept_state())
         self.save_others = tk.BooleanVar(value=True)
         self.save_kept = tk.BooleanVar(value=False)
         self.cb_others = ttk.Checkbutton(root, text=self.t["save_others"], variable=self.save_others)
@@ -224,6 +225,18 @@ class App:
         for w in (self.cb_others, self.cb_kept):
             w.configure(state=st_x)
         self.combo.configure(state="disabled" if repair else "readonly")
+        self.update_kept_state()
+
+    def update_kept_state(self):
+        """'Also save the track that stays in the video' makes no sense for a silent video:
+        then every track is "other" and goes to audio files."""
+        if self.mode.get() == "repair":
+            return
+        silent = self.keep.get() == self.t["no_audio"]
+        if silent:
+            self.save_kept.set(False)
+            self.save_others.set(True)
+        self.cb_kept.configure(state="disabled" if silent else "normal")
 
     def refresh_ffmpeg(self):
         self.ffl.configure(text=self.t["ffmpeg_ok"] if self.ffmpeg else self.t["ffmpeg_no"])

@@ -295,8 +295,14 @@ def lattice_labels(s, m, P, Lm, switch_cost=150.0, progress=None):
     e = np.zeros(n)
     low = s < 0.5
     e[s > 1.0] = 1.0
-    e[low & (m >= 30)] = -1.0
-    e[low & (m >= 5) & (m < 30)] = -0.4
+    # "Mono" packets only count as microphone evidence when stereo PC audio is plentiful.
+    # Games sometimes switch to mono sound: then PC chunks look like mic chunks, both vote
+    # "mono", and the schedule would flip by half a period (PC <-> mic swapped for a while).
+    # In that case only real stereo packets are allowed to decide the phase.
+    stereo_share = float(np.mean(s > 1.0))
+    if stereo_share < 0.05:
+        e[low & (m >= 30)] = -1.0
+        e[low & (m >= 5) & (m < 30)] = -0.4
     phi = np.arange(P)
     T = ((np.arange(P)[:, None] - phi[None, :]) % P) < Lm
     SG = np.where(T, -1.0, 1.0)

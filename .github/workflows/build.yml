@@ -21,6 +21,8 @@ jobs:
           choco install ffmpeg -y --no-progress
       - name: Self-test on synthetic data
         run: python tests/test_synthetic.py
+      - name: Mono-stretch regression test
+        run: python tests/test_mono_stretch.py
       - name: GUI smoke test
         run: python tests/test_gui_smoke.py
       - name: Build exe
