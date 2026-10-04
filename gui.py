@@ -228,15 +228,21 @@ class App:
         self.update_kept_state()
 
     def update_kept_state(self):
-        """'Also save the track that stays in the video' makes no sense for a silent video:
-        then every track is "other" and goes to audio files."""
+        """Keep the two audio checkboxes consistent with the chosen track.
+        Silent video: every track is "other" and goes to audio files (nothing "stays").
+        One track kept out of one: there are no "other" tracks to save."""
         if self.mode.get() == "repair":
             return
         silent = self.keep.get() == self.t["no_audio"]
+        n = len(getattr(self, "streams", []) or [])
         if silent:
             self.save_kept.set(False)
             self.save_others.set(True)
         self.cb_kept.configure(state="disabled" if silent else "normal")
+        no_others = (not silent) and n <= 1
+        if no_others:
+            self.save_others.set(False)
+        self.cb_others.configure(state="disabled" if no_others else "normal")
 
     def refresh_ffmpeg(self):
         self.ffl.configure(text=self.t["ffmpeg_ok"] if self.ffmpeg else self.t["ffmpeg_no"])
