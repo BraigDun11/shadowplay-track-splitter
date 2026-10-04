@@ -32,6 +32,7 @@ UI = {
         "save_audio": "Also save PC and mic as separate audio files (.m4a)",
         "keep": "Sound in the video:",
         "no_audio": "No sound (video only)",
+        "nothing_to_do": "Nothing to do: tick at least one option for saving audio files (otherwise the result would be the same video).",
         "save_others": "Save the other tracks as separate audio files",
         "save_kept": "Also save the track that stays in the video as an audio file",
         "start": "Start",
@@ -70,6 +71,7 @@ UI = {
         "save_audio": "Также сохранить ПК и микрофон отдельными аудиофайлами (.m4a)",
         "keep": "Звук в видео:",
         "no_audio": "Без звука (только картинка)",
+        "nothing_to_do": "Нечего делать: отметь хотя бы один пункт сохранения аудиофайлов (иначе получится то же самое видео).",
         "save_others": "Сохранить остальные дорожки отдельными аудиофайлами",
         "save_kept": "Также сохранить дорожку, которая остаётся в видео, как аудиофайл",
         "start": "Начать",
@@ -241,7 +243,11 @@ class App:
         self.cb_kept.configure(state="disabled" if silent else "normal")
         no_others = (not silent) and n <= 1
         if no_others:
+            # one track kept in the video, nothing else to save: the only useful result
+            # is a copy of that track as an audio file, so that box is on and locked
             self.save_others.set(False)
+            self.save_kept.set(True)
+            self.cb_kept.configure(state="disabled")
         self.cb_others.configure(state="disabled" if no_others else "normal")
 
     def refresh_ffmpeg(self):
@@ -346,6 +352,9 @@ class App:
             cur = self.keep.get()
             idx = vals.index(cur) if cur in vals else 0
             keep = idx - 1          # 0 in the list = "no sound" -> -1
+            if keep >= 0 and not self.save_others.get() and not self.save_kept.get():
+                messagebox.showinfo(self.t["title"], self.t["nothing_to_do"])
+                return
         self.out_dir = os.path.dirname(os.path.abspath(video))
         self.lines = []
         self.text.configure(state="normal")
