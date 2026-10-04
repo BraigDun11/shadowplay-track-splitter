@@ -19,16 +19,19 @@ def main():
     ap.add_argument("--extract", action="store_true",
                     help="normal video with several audio tracks: keep one track in the video "
                          "and save the others as audio files")
-    ap.add_argument("--keep", type=int, default=1, help="with --extract: number of the track to keep (1, 2, ...)")
+    ap.add_argument("--keep", type=int, default=1,
+                    help="with --extract: number of the track to keep in the video (1, 2, ...; 0 = video without sound)")
     ap.add_argument("--no-save-others", action="store_true", help="with --extract: do not save other tracks")
+    ap.add_argument("--save-kept", action="store_true", help="with --extract: also save the kept track as audio")
+    ap.add_argument("--no-save-audio", action="store_true", help="repair mode: do not write separate .m4a files")
     a = ap.parse_args()
     lang = a.lang or core.detect_lang()
     try:
         if a.extract:
-            core.extract_tracks(a.video, a.ffmpeg, a.keep - 1, not a.no_save_others, print, None, lang)
+            core.extract_tracks(a.video, a.ffmpeg, a.keep - 1, not a.no_save_others, a.save_kept, print, None, lang)
             return
         core.process(a.video, a.ffmpeg, a.stream, a.swap, a.match_video, a.video_scale,
-                     a.save_features, print, None, lang)
+                     True, print, None, lang, not a.no_save_audio)
     except core.SplitError as e:
         sys.exit(str(e))
 

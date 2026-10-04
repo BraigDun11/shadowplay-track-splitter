@@ -17,12 +17,14 @@ jobs:
           python-version: "3.12"
       - name: Install dependencies
         run: |
-          pip install numpy pyinstaller
+          pip install numpy tkinterdnd2 pyinstaller
           choco install ffmpeg -y --no-progress
       - name: Self-test on synthetic data
         run: python tests/test_synthetic.py
+      - name: GUI smoke test
+        run: python tests/test_gui_smoke.py
       - name: Build exe
-        run: pyinstaller --onefile --noconsole --name ShadowPlayTrackSplitter gui.py
+        run: pyinstaller --onefile --noconsole --collect-all tkinterdnd2 --name ShadowPlayTrackSplitter gui.py
       - uses: actions/upload-artifact@v4
         with:
           name: ShadowPlayTrackSplitter-windows

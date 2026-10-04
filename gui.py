@@ -10,20 +10,30 @@ from tkinter import filedialog, messagebox, ttk
 
 import core
 
-APP_VERSION = "1.1"
+try:  # drag & drop of files into the window (optional)
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+    HAVE_DND = True
+except Exception:  # pragma: no cover
+    DND_FILES = TkinterDnD = None
+    HAVE_DND = False
+
+APP_VERSION = "1.2"
 
 UI = {
     "en": {
         "title": "ShadowPlay Track Splitter",
-        "file": "Video file:",
+        "file": "Video file (you can drag it into this window):",
         "browse": "Browse...",
         "mode": "What to do",
         "m_repair": "Split mixed tracks (video repaired with untrunc: PC and mic are mixed in one track)",
-        "m_extract": "Extract tracks from a normal video (keep one track in the video, save the others as audio)",
+        "m_extract": "Separate audio from a normal video (keep a track in the video, save audio as files)",
         "swap": "Swap tracks (if PC and mic came out the other way round)",
         "stretch": "Stretch video to match audio length (fixes growing lag)",
-        "keep": "Track to keep in the video:",
+        "save_audio": "Also save PC and mic as separate audio files (.m4a)",
+        "keep": "Sound in the video:",
+        "no_audio": "No sound (video only)",
         "save_others": "Save the other tracks as separate audio files",
+        "save_kept": "Also save the track that stays in the video as an audio file",
         "start": "Start",
         "working": "Working...",
         "ffmpeg_ok": "ffmpeg: found",
@@ -31,6 +41,7 @@ UI = {
         "ffmpeg_pick": "Choose ffmpeg.exe...",
         "ffmpeg_dialog": "Choose ffmpeg.exe",
         "open": "Open folder",
+        "reports": "Reports folder",
         "pick_first": "Choose a video file first.",
         "no_ffmpeg": "ffmpeg was not found.\nDownload it from https://www.gyan.dev/ffmpeg/builds/ (essentials build) "
                      "and either put ffmpeg.exe next to this program or choose it with the button.",
@@ -40,24 +51,27 @@ UI = {
         "video_types": "Video files",
         "all_types": "All files",
         "checking": "Checking the file...",
-        "tracks": "Audio tracks in the file: {n}",
+        "tracks": "Audio tracks in the file: {n}.",
         "track_item": "{i}: {codec}{title}{note}",
         "empty": " (empty)",
         "hint_repair": "Looks like a repaired video with mixed tracks: 'Split mixed tracks' is selected.",
-        "hint_extract": "The file already has separate audio tracks: 'Extract tracks' is selected.",
+        "hint_extract": "The file has normal audio track(s): 'Separate audio' is selected.",
         "hint_unreadable": "Could not read the file. If it is the original damaged recording, repair it first.",
     },
     "ru": {
         "title": "ShadowPlay Track Splitter",
-        "file": "Видеофайл:",
+        "file": "Видеофайл (можно перетащить в это окно):",
         "browse": "Выбрать...",
         "mode": "Что сделать",
         "m_repair": "Разделить смешанные дорожки (видео восстановлено untrunc: ПК и микрофон в одной дорожке)",
-        "m_extract": "Достать дорожки из обычного видео (оставить одну в видео, остальные сохранить как аудио)",
+        "m_extract": "Отделить звук от обычного видео (оставить дорожку в видео, звук сохранить файлами)",
         "swap": "Поменять дорожки местами (если ПК и микрофон оказались наоборот)",
         "stretch": "Растянуть видео под длину звука (если звук всё сильнее отстаёт)",
-        "keep": "Какую дорожку оставить в видео:",
+        "save_audio": "Также сохранить ПК и микрофон отдельными аудиофайлами (.m4a)",
+        "keep": "Звук в видео:",
+        "no_audio": "Без звука (только картинка)",
         "save_others": "Сохранить остальные дорожки отдельными аудиофайлами",
+        "save_kept": "Также сохранить дорожку, которая остаётся в видео, как аудиофайл",
         "start": "Начать",
         "working": "Работаю...",
         "ffmpeg_ok": "ffmpeg: найден",
@@ -65,6 +79,7 @@ UI = {
         "ffmpeg_pick": "Выбрать ffmpeg.exe...",
         "ffmpeg_dialog": "Выберите ffmpeg.exe",
         "open": "Открыть папку",
+        "reports": "Папка отчётов",
         "pick_first": "Сначала выберите видеофайл.",
         "no_ffmpeg": "Не найден ffmpeg.\nСкачайте его на https://www.gyan.dev/ffmpeg/builds/ (essentials) и либо "
                      "положите ffmpeg.exe рядом с программой, либо выберите его кнопкой.",
@@ -74,11 +89,11 @@ UI = {
         "video_types": "Видеофайлы",
         "all_types": "Все файлы",
         "checking": "Проверяю файл...",
-        "tracks": "Аудиодорожек в файле: {n}",
+        "tracks": "Аудиодорожек в файле: {n}.",
         "track_item": "{i}: {codec}{title}{note}",
         "empty": " (пустая)",
-        "hint_repair": "Похоже на восстановленное видео со смешанными дорожками: выбрано «Разделить смешанные дорожки».",
-        "hint_extract": "В файле уже раздельные дорожки: выбрано «Достать дорожки».",
+        "hint_repair": "Похоже на восстановленное видео со смешанными дорожками: выбрано «Разделить смешанные».",
+        "hint_extract": "В файле обычные аудиодорожки: выбрано «Отделить звук».",
         "hint_unreadable": "Не получилось прочитать файл. Если это исходная повреждённая запись, сначала восстановите её.",
     },
 }
@@ -97,18 +112,19 @@ class App:
         self.probe_token = 0
 
         root.title("%s %s" % (self.t["title"], APP_VERSION))
-        root.geometry("760x640")
-        root.minsize(660, 540)
+        root.geometry("780x700")
+        root.minsize(680, 600)
         pad = {"padx": 12, "pady": 4}
 
         row = ttk.Frame(root)
         row.pack(fill="x", **pad)
         ttk.Label(row, text=self.t["file"]).pack(anchor="w")
         self.path = tk.StringVar(value=preset or "")
-        ttk.Entry(row, textvariable=self.path).pack(side="left", fill="x", expand=True)
+        self.entry = ttk.Entry(row, textvariable=self.path)
+        self.entry.pack(side="left", fill="x", expand=True)
         ttk.Button(row, text=self.t["browse"], command=self.browse).pack(side="left", padx=(8, 0))
 
-        self.info = ttk.Label(root, text="", wraplength=720, justify="left")
+        self.info = ttk.Label(root, text="", wraplength=740, justify="left")
         self.info.pack(anchor="w", **pad)
 
         ttk.Label(root, text=self.t["mode"]).pack(anchor="w", padx=12, pady=(8, 0))
@@ -117,23 +133,30 @@ class App:
                         command=self.update_mode).pack(anchor="w", padx=24)
         self.swap = tk.BooleanVar(value=False)
         self.stretch = tk.BooleanVar(value=False)
+        self.save_audio = tk.BooleanVar(value=True)
         self.cb_swap = ttk.Checkbutton(root, text=self.t["swap"], variable=self.swap)
         self.cb_swap.pack(anchor="w", padx=48)
         self.cb_stretch = ttk.Checkbutton(root, text=self.t["stretch"], variable=self.stretch)
         self.cb_stretch.pack(anchor="w", padx=48)
+        self.cb_saveaudio = ttk.Checkbutton(root, text=self.t["save_audio"], variable=self.save_audio)
+        self.cb_saveaudio.pack(anchor="w", padx=48)
 
         ttk.Radiobutton(root, text=self.t["m_extract"], variable=self.mode, value="extract",
                         command=self.update_mode).pack(anchor="w", padx=24, pady=(6, 0))
         krow = ttk.Frame(root)
         krow.pack(fill="x", padx=48, pady=2)
-        self.lbl_keep = ttk.Label(krow, text=self.t["keep"])
-        self.lbl_keep.pack(side="left")
+        ttk.Label(krow, text=self.t["keep"]).pack(side="left")
         self.keep = tk.StringVar(value="")
-        self.combo = ttk.Combobox(krow, textvariable=self.keep, state="readonly", width=40, values=[])
+        self.combo = ttk.Combobox(krow, textvariable=self.keep, state="readonly", width=44,
+                                  values=[self.t["no_audio"]])
         self.combo.pack(side="left", padx=8)
+        self.keep.set(self.t["no_audio"])
         self.save_others = tk.BooleanVar(value=True)
+        self.save_kept = tk.BooleanVar(value=False)
         self.cb_others = ttk.Checkbutton(root, text=self.t["save_others"], variable=self.save_others)
         self.cb_others.pack(anchor="w", padx=48)
+        self.cb_kept = ttk.Checkbutton(root, text=self.t["save_kept"], variable=self.save_kept)
+        self.cb_kept.pack(anchor="w", padx=48)
 
         frow = ttk.Frame(root)
         frow.pack(fill="x", **pad)
@@ -148,6 +171,7 @@ class App:
         self.btn.pack(side="left")
         self.openbtn = ttk.Button(brow, text=self.t["open"], command=self.open_folder, state="disabled")
         self.openbtn.pack(side="left", padx=8)
+        ttk.Button(brow, text=self.t["reports"], command=self.open_reports).pack(side="left")
 
         self.bar = ttk.Progressbar(root, maximum=1.0)
         self.bar.pack(fill="x", **pad)
@@ -162,18 +186,43 @@ class App:
 
         self.update_mode()
         self.path.trace_add("write", lambda *a: self.schedule_probe())
+        self.setup_dnd()
         if preset:
             self.schedule_probe()
         self.root.after(100, self.poll)
+
+    # ---- drag & drop
+    def setup_dnd(self):
+        if not HAVE_DND:
+            return
+        try:
+            for w in (self.root, self.entry, self.text):
+                w.drop_target_register(DND_FILES)
+                w.dnd_bind("<<Drop>>", self.on_drop)
+        except Exception:
+            pass
+
+    def on_drop(self, event):
+        try:
+            files = self.root.tk.splitlist(event.data)
+        except Exception:
+            files = [event.data]
+        for f in files:
+            f = str(f).strip().strip("{}")
+            if os.path.isfile(f):
+                self.path.set(f)
+                break
+        return event.action if hasattr(event, "action") else None
 
     # ---- helpers
     def update_mode(self):
         repair = self.mode.get() == "repair"
         st_r = "normal" if repair else "disabled"
         st_x = "disabled" if repair else "normal"
-        self.cb_swap.configure(state=st_r)
-        self.cb_stretch.configure(state=st_r)
-        self.cb_others.configure(state=st_x)
+        for w in (self.cb_swap, self.cb_stretch, self.cb_saveaudio):
+            w.configure(state=st_r)
+        for w in (self.cb_others, self.cb_kept):
+            w.configure(state=st_x)
         self.combo.configure(state="disabled" if repair else "readonly")
 
     def refresh_ffmpeg(self):
@@ -202,16 +251,21 @@ class App:
         self.text.see("end")
         self.text.configure(state="disabled")
 
-    def open_folder(self):
-        if not self.out_dir:
-            return
+    def _open(self, path):
         try:
             if os.name == "nt":
-                os.startfile(self.out_dir)  # noqa
+                os.startfile(path)  # noqa
             else:
-                subprocess.Popen(["xdg-open", self.out_dir])
+                subprocess.Popen(["xdg-open", path])
         except Exception:
             pass
+
+    def open_folder(self):
+        if self.out_dir:
+            self._open(self.out_dir)
+
+    def open_reports(self):
+        self._open(core.reports_dir())
 
     # ---- looking at the chosen file (in background)
     def schedule_probe(self):
@@ -237,22 +291,24 @@ class App:
             self.info.configure(text=self.t["hint_unreadable"])
             return
         self.streams = streams
-        items = []
+        items = [self.t["no_audio"]]
         for s in streams:
             items.append(self.t["track_item"].format(
                 i=s["index"] + 1, codec=s["codec"],
                 title=(" '%s'" % s["title"]) if s["title"] else "",
                 note=self.t["empty"] if s["mb"] < 0.01 else ""))
         self.combo.configure(values=items)
-        if items:
-            self.keep.set(items[0])
         full = [s for s in streams if s["mb"] >= 0.01]
-        if len(full) >= 2:
-            self.mode.set("extract")
-            hint = self.t["hint_extract"]
-        else:
+        if len(streams) >= 2 and len(full) < 2:
+            # two streams but only one has data: the signature of a repaired video
             self.mode.set("repair")
             hint = self.t["hint_repair"]
+            self.keep.set(items[1] if len(items) > 1 else items[0])
+        else:
+            self.mode.set("extract")
+            hint = self.t["hint_extract"]
+            # several tracks: keep the first in the video; a single track: make a silent video + audio file
+            self.keep.set(items[1] if len(streams) >= 2 else items[0])
         self.update_mode()
         self.info.configure(text="%s  %s" % (self.t["tracks"].format(n=len(streams)), hint))
 
@@ -265,11 +321,12 @@ class App:
         if not self.ffmpeg:
             messagebox.showerror(self.t["error"], self.t["no_ffmpeg"])
             return
-        keep = 0
+        keep = -1
         if self.mode.get() == "extract":
             vals = list(self.combo.cget("values"))
             cur = self.keep.get()
-            keep = vals.index(cur) if cur in vals else 0
+            idx = vals.index(cur) if cur in vals else 0
+            keep = idx - 1          # 0 in the list = "no sound" -> -1
         self.out_dir = os.path.dirname(os.path.abspath(video))
         self.lines = []
         self.text.configure(state="normal")
@@ -278,36 +335,32 @@ class App:
         self.btn.configure(state="disabled", text=self.t["working"])
         self.openbtn.configure(state="disabled")
         self.bar["value"] = 0
-        args = (self.mode.get(), video, self.ffmpeg, self.swap.get(), self.stretch.get(), keep,
-                self.save_others.get())
-        threading.Thread(target=self.worker, args=args, daemon=True).start()
+        opts = dict(mode=self.mode.get(), video=video, ffmpeg=self.ffmpeg, swap=self.swap.get(),
+                    stretch=self.stretch.get(), save_audio=self.save_audio.get(), keep=keep,
+                    save_others=self.save_others.get(), save_kept=self.save_kept.get())
+        threading.Thread(target=self.worker, args=(opts,), daemon=True).start()
 
-    def worker(self, mode, video, ffmpeg, swap, stretch, keep, save_others):
+    def worker(self, o):
         log = lambda s: self.q.put(("log", s))
         prog = lambda f: self.q.put(("progress", f))
         try:
-            if mode == "extract":
-                core.extract_tracks(video, ffmpeg=ffmpeg, keep=keep, save_others=save_others,
-                                    log=log, progress=prog, lang=self.lang)
+            if o["mode"] == "extract":
+                core.extract_tracks(o["video"], ffmpeg=o["ffmpeg"], keep=o["keep"], save_others=o["save_others"],
+                                    save_kept=o["save_kept"], log=log, progress=prog, lang=self.lang)
             else:
-                core.process(video, ffmpeg=ffmpeg, swap=swap, match_video=stretch,
-                             log=log, progress=prog, lang=self.lang)
-            self.q.put(("done", video))
+                core.process(o["video"], ffmpeg=o["ffmpeg"], swap=o["swap"], match_video=o["stretch"],
+                             log=log, progress=prog, lang=self.lang, save_audio_files=o["save_audio"])
+            self.q.put(("done", o["video"]))
         except core.SplitError as e:
-            self.q.put(("error", (video, str(e))))
+            self.q.put(("error", (o["video"], str(e))))
         except Exception as e:  # unexpected
             import traceback
-            self.q.put(("error", (video, "%s\n%s" % (e, traceback.format_exc()))))
+            self.q.put(("error", (o["video"], "%s\n%s" % (e, traceback.format_exc()))))
 
     def save_report(self, video):
-        p = os.path.splitext(video)[0] + "_report.txt"
-        try:
-            with open(p, "w", encoding="utf-8") as f:
-                f.write("ShadowPlay Track Splitter %s\n\n" % APP_VERSION)
-                f.write("\n".join(self.lines))
+        p = core.save_report(video, self.lines, APP_VERSION)
+        if p:
             self.add_log(self.t["report"].format(p=p))
-        except OSError:
-            pass
 
     def poll(self):
         try:
@@ -337,7 +390,7 @@ class App:
 
 
 def main():
-    root = tk.Tk()
+    root = TkinterDnD.Tk() if HAVE_DND else tk.Tk()
     preset = sys.argv[1] if len(sys.argv) > 1 and os.path.isfile(sys.argv[1]) else None
     App(root, preset)
     root.mainloop()

@@ -45,6 +45,14 @@ Options:
 If the video is fine and already has several audio tracks (for example PC + mic), the second mode
 **Extract tracks** keeps one track in the video and saves the others as separate audio files, without
 re-encoding. Example: a video with PC sound only, plus a separate audio file with your microphone.
+It also works with a video that has a single audio track: choose "No sound" to get a silent video plus
+the audio as a separate file.
+
+### v1.2 changes
+- Drag a video file into the window - it is picked up and analysed automatically (needs `tkinterdnd2`).
+- Existing results are never overwritten: `_fixed`, `_fixed1`, `_fixed2`, ...
+- Optional saving of the separate audio files.
+- Reports (`*_features.npz`) are stored in `Documents\ShadowPlay Track Splitter\Reports`.
 
 ### Important: repair the video first
 
@@ -82,6 +90,10 @@ License: MIT. Author: [BraigDun11](https://github.com/BraigDun11). Developed tog
 
 <a name="ru"></a>
 ## RU
+> **v1.2:** перетаскивание видео в окно; режим «достать дорожки» работает и для видео с одной дорожкой
+> (получится видео без звука + отдельный аудиофайл); результаты не перезаписываются (`_fixed`, `_fixed1`, ...);
+> отчёты лежат в `Документы\ShadowPlay Track Splitter\Reports`; сохранение отдельных аудиофайлов — по галочке.
+
 
 Разделяет **звук с ПК и микрофон**, которые смешались в один аудиопоток после восстановления повреждённой
 записи NVIDIA ShadowPlay (например, программой untrunc).

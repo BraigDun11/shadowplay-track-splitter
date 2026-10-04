@@ -63,6 +63,8 @@ MSG = {
         "x_one": "This video has only one audio track - there is nothing to separate.",
         "x_bad": "Invalid track number.",
         "x_video": "Saving video with track {i}...",
+        "x_video_none": "Saving video without sound...",
+        "x_report": "A report was saved: {p}",
         "x_audio": "Saving track {i} as an audio file...",
         "x_done": "DONE: {out}",
         "x_done2": "Audio files: {files}",
@@ -103,6 +105,8 @@ MSG = {
         "x_one": "В этом видео одна аудиодорожка - разделять нечего.",
         "x_bad": "Неверный номер дорожки.",
         "x_video": "Сохраняю видео с дорожкой {i}...",
+        "x_video_none": "Сохраняю видео без звука...",
+        "x_report": "Отчёт сохранён: {p}",
         "x_audio": "Сохраняю дорожку {i} отдельным аудиофайлом...",
         "x_done": "ГОТОВО: {out}",
         "x_done2": "Аудиофайлы: {files}",
@@ -124,6 +128,66 @@ def detect_lang():
         return "ru" if (locale.getlocale()[0] or "").lower().startswith("ru") else "en"
     except Exception:
         return "en"
+
+
+def documents_dir():
+    """The user's Documents folder (handles OneDrive-redirected folders on Windows)."""
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class GUID(ctypes.Structure):
+                _fields_ = [("a", ctypes.c_ulong), ("b", ctypes.c_ushort), ("c", ctypes.c_ushort),
+                            ("d", ctypes.c_ubyte * 8)]
+
+            guid = GUID(0xFDD39AD0, 0x238F, 0x46AF, (ctypes.c_ubyte * 8)(0xAD, 0xB4, 0x6C, 0x85, 0x48, 0x03, 0x69, 0xC7))
+            buf = ctypes.c_wchar_p()
+            if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(guid), 0, None, ctypes.byref(buf)) == 0:
+                path = buf.value
+                ctypes.windll.ole32.CoTaskMemFree(buf)
+                if path and os.path.isdir(path):
+                    return path
+        except Exception:
+            pass
+    d = os.path.join(os.path.expanduser("~"), "Documents")
+    return d if os.path.isdir(d) else os.path.expanduser("~")
+
+
+def reports_dir():
+    """Folder for reports and diagnostic files: Documents/ShadowPlay Track Splitter/Reports."""
+    d = os.path.join(documents_dir(), "ShadowPlay Track Splitter", "Reports")
+    try:
+        os.makedirs(d, exist_ok=True)
+    except OSError:
+        d = tempfile.gettempdir()
+    return d
+
+
+def unique_suffix(patterns, **kw):
+    """Smallest suffix '', '1', '2', ... for which none of the files named by `patterns` exists.
+    Each pattern is a format string with {n}, e.g. '{base}_fixed{n}.mp4'."""
+    i = 0
+    while True:
+        suf = "" if i == 0 else str(i)
+        if not any(os.path.exists(p.format(n=suf, **kw)) for p in patterns):
+            return suf
+        i += 1
+
+
+def save_report(video, lines, version=""):
+    """Write the text report into the reports folder; returns its path (or None)."""
+    name = os.path.splitext(os.path.basename(video))[0]
+    d = reports_dir()
+    suf = unique_suffix(["{d}/{name}_report{n}.txt"], d=d, name=name)
+    path = os.path.join(d, "%s_report%s.txt" % (name, suf))
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("ShadowPlay Track Splitter %s\n\n" % version)
+            f.write("\n".join(lines))
+        return path
+    except OSError:
+        return None
 
 
 # ----------------------------------------------------------------- ffmpeg
@@ -357,9 +421,12 @@ def _label(s):
     return lab or "track%d" % (s["index"] + 1)
 
 
-def extract_tracks(video, ffmpeg=None, keep=0, save_others=True, log=print, progress=None, lang="en"):
-    """Normal video with several audio tracks: write a video that keeps only track `keep`
-    (0-based) and, optionally, every other track as a separate audio file. No re-encoding."""
+def extract_tracks(video, ffmpeg=None, keep=0, save_others=True, save_kept=False,
+                   log=print, progress=None, lang="en"):
+    """Normal video with one or more audio tracks.
+    keep >= 0: the video keeps track `keep` (0-based); keep == -1: the video gets no sound.
+    save_others: save the tracks NOT kept in the video as separate audio files.
+    save_kept: also save the kept track as an audio file.  No re-encoding."""
     M = MSG.get(lang, MSG["en"])
 
     def say(key, **kw):
@@ -376,46 +443,46 @@ def extract_tracks(video, ffmpeg=None, keep=0, save_others=True, log=print, prog
     for s in streams:
         say("x_track", i=s["index"] + 1, codec=s["codec"],
             title=(" '%s'" % s["title"]) if s["title"] else "", size=s["mb"])
-    if len(streams) < 2:
-        raise SplitError(M["x_one"])
-    if not (0 <= keep < len(streams)):
+    if not (-1 <= keep < len(streams)):
         raise SplitError(M["x_bad"])
     base = os.path.splitext(video)[0]
-    k = streams[keep]
-    out = "%s_video_%s.mp4" % (base, _label(k))
-    say("x_video", i=keep + 1)
-    r = _run([ff, "-y", "-v", "error", "-i", video, "-map", "0:v", "-map", "0:a:%d" % keep,
-              "-c", "copy", out], text=True)
+    to_save = [s for s in streams if (s["index"] != keep and save_others) or (s["index"] == keep and save_kept)]
+    vlabel = _label(streams[keep]) if keep >= 0 else "noaudio"
+    patterns = ["{base}_video_{vl}{n}.mp4"] + \
+               ["{base}_audio_%s{n}%s" % (_label(s), AUDIO_EXT.get(s["codec"], ".mka")) for s in to_save]
+    suf = unique_suffix(patterns, base=base, vl=vlabel)
+    out = "%s_video_%s%s.mp4" % (base, vlabel, suf)
+    if keep >= 0:
+        say("x_video", i=keep + 1)
+        maps = ["-map", "0:v", "-map", "0:a:%d" % keep]
+    else:
+        say("x_video_none")
+        maps = ["-map", "0:v"]
+    r = _run([ff, "-y", "-v", "error", "-i", video] + maps + ["-c", "copy", out], text=True)
     if r.returncode != 0:
         raise SplitError(M["e_extract"].format(err=r.stderr))
     if progress:
-        progress(0.5)
+        progress(0.5 if to_save else 1.0)
     files = []
-    if save_others:
-        others = [s for s in streams if s["index"] != keep]
-        for n_, s in enumerate(others):
-            ext = AUDIO_EXT.get(s["codec"], ".mka")
-            fn = "%s_audio_%s%s" % (base, _label(s), ext)
-            say("x_audio", i=s["index"] + 1)
-            r = _run([ff, "-y", "-v", "error", "-i", video, "-map", "0:a:%d" % s["index"],
-                      "-vn", "-c", "copy", fn], text=True)
-            if r.returncode != 0:
-                raise SplitError(M["e_extract"].format(err=r.stderr))
-            files.append(fn)
-            if progress:
-                progress(0.5 + 0.5 * (n_ + 1) / len(others))
-    if progress:
-        progress(1.0)
+    for n_, s in enumerate(to_save):
+        fn = "%s_audio_%s%s%s" % (base, _label(s), suf, AUDIO_EXT.get(s["codec"], ".mka"))
+        say("x_audio", i=s["index"] + 1)
+        r = _run([ff, "-y", "-v", "error", "-i", video, "-map", "0:a:%d" % s["index"],
+                  "-vn", "-c", "copy", fn], text=True)
+        if r.returncode != 0:
+            raise SplitError(M["e_extract"].format(err=r.stderr))
+        files.append(fn)
+        if progress:
+            progress(0.5 + 0.5 * (n_ + 1) / len(to_save))
     say("x_done", out=out)
     if files:
         say("x_done2", files=", ".join(files))
     return {"video": out, "audio": files}
 
 
-
 # ------------------------------------------------------------------ main
 def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_scale=1.0,
-            save_features=False, log=print, progress=None, lang="en"):
+            save_features=True, log=print, progress=None, lang="en", save_audio_files=True):
     """Split the interleaved audio of `video`. Returns a dict with output paths."""
     M = MSG.get(lang, MSG["en"])
 
@@ -432,8 +499,10 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
     if not ff:
         raise SplitError(M["no_ffmpeg"])
     base = os.path.splitext(video)[0]
-    raw = base + "_raw.aac"
+    fd, raw = tempfile.mkstemp(prefix="_raw_", suffix=".aac", dir=os.path.dirname(os.path.abspath(video)))
+    os.close(fd)
     outputs = {}
+    fa = fb = None
     try:
         say("s1")
         r = _run([ff, "-y", "-v", "error", "-i", video, "-map", "0:a:%d" % stream,
@@ -466,8 +535,8 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             say("mismatch", a=len(s), b=len(frames))
         n = min(len(s), len(frames))
         s, m = s[:n], m[:n]
-        feat = base + "_features.npz"
-        if save_features:
+        feat = os.path.join(reports_dir(), os.path.basename(base) + "_features.npz")
+        if save_features:   # small diagnostic file; lets the schedule be analysed without the video
             np.savez_compressed(feat, s=s.astype(np.float16), m=m.astype(np.float16))
 
         def stamp(k):
@@ -498,7 +567,9 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
         say("filled", a=filled[1] * FRAME / sr, b=filled[0] * FRAME / sr)
         if swap:
             stereo, mono = mono, stereo
-        fa, fb = base + "_track1_PC.aac", base + "_track2_MIC.aac"
+        suf = unique_suffix(["{base}_fixed{n}.mp4", "{base}_track1_PC{n}.m4a", "{base}_track2_MIC{n}.m4a"],
+                            base=base)
+        fa, fb = "%s_track1_PC%s.aac" % (base, suf), "%s_track2_MIC%s.aac" % (base, suf)
         with open(fa, "wb") as f:
             f.write(stereo)
         with open(fb, "wb") as f:
@@ -524,7 +595,7 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             say("hint_stretch", d=(max(dur_a, dur_b) - vdur) / 60)
 
         say("s5")
-        out = base + "_fixed.mp4"
+        out = "%s_fixed%s.mp4" % (base, suf)
         cmd = [ff, "-y", "-v", "error"]
         if scale != 1.0:
             cmd += ["-itsscale", "%.6f" % scale]
@@ -538,19 +609,24 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             raise SplitError(M["e_mux"].format(a=fa, b=fb))
         ma, mb = fa.replace(".aac", ".m4a"), fb.replace(".aac", ".m4a")
         for f in (fa, fb):
-            _run([ff, "-y", "-v", "error", "-i", f, "-c", "copy", "-bsf:a", "aac_adtstoasc",
-                  f.replace(".aac", ".m4a")])
+            if save_audio_files:
+                _run([ff, "-y", "-v", "error", "-i", f, "-c", "copy", "-bsf:a", "aac_adtstoasc",
+                      f.replace(".aac", ".m4a")])
             os.remove(f)
         if progress:
             progress(1.0)
         say("done", out=out)
-        say("done2", a=ma, b=mb)
+        if save_audio_files:
+            say("done2", a=ma, b=mb)
+        else:
+            ma = mb = None
         outputs = {"video": out, "pc": ma, "mic": mb, "audio_min": max(dur_a, dur_b) / 60,
                    "video_min": (vdur / 60) if vdur else None}
         return outputs
     finally:
-        if os.path.exists(raw):
-            try:
-                os.remove(raw)
-            except OSError:
-                pass
+        for f in (raw, fa, fb):
+            if f and os.path.exists(f):
+                try:
+                    os.remove(f)
+                except OSError:
+                    pass

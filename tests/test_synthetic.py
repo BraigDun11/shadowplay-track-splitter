@@ -91,6 +91,16 @@ def main():
     assert res2["video"].endswith("_video_PC.mp4") and len(res2["audio"]) == 1, res2
     assert res2["audio"][0].endswith("_audio_Mic.m4a"), res2
     assert len(core.probe_audio(core.find_ffmpeg(), res2["video"])) == 1
+    # single-track video -> silent video + separate audio file
+    one = os.path.join(tmp, "one.mp4")
+    ff("-f", "lavfi", "-i", "testsrc=d=20:r=30:s=320x240", "-i", A, "-t", "20", "-map", "0:v", "-map", "1:a",
+       "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "copy", one)
+    r3 = core.extract_tracks(one, keep=-1, save_others=True, lang="en")
+    assert len(core.probe_audio(core.find_ffmpeg(), r3["video"])) == 0, r3
+    assert len(r3["audio"]) == 1 and os.path.exists(r3["audio"][0]), r3
+    # existing outputs are never overwritten
+    r4 = core.process(video, lang="en")
+    assert r4["video"] != res["video"] and os.path.exists(res["video"]), (r4["video"], res["video"])
     print("EXTRACT OK")
     print("OK")
 
