@@ -68,6 +68,7 @@ MSG = {
         "x_audio": "Saving track {i} as an audio file...",
         "x_done": "DONE: {out}",
         "x_done2": "Audio files: {files}",
+        "done3": "Audio files: {files}",
         "x_done_audio": "DONE (audio only, no video needed): {files}",
     },
     "ru": {
@@ -111,6 +112,7 @@ MSG = {
         "x_audio": "Сохраняю дорожку {i} отдельным аудиофайлом...",
         "x_done": "ГОТОВО: {out}",
         "x_done2": "Аудиофайлы: {files}",
+        "done3": "Аудиофайлы: {files}",
         "x_done_audio": "ГОТОВО (только аудио, видео не нужно): {files}",
     },
 }
@@ -430,11 +432,13 @@ def _label(s):
 
 
 def extract_tracks(video, ffmpeg=None, keep=0, save_others=True, save_kept=False,
-                   log=print, progress=None, lang="en"):
+                   log=print, progress=None, lang="en", save_tracks=None):
     """Normal video with one or more audio tracks.
     keep >= 0: the video keeps track `keep` (0-based); keep == -1: the video gets no sound.
     save_others: save the tracks NOT kept in the video as separate audio files.
-    save_kept: also save the kept track as an audio file.  No re-encoding."""
+    save_kept: also save the kept track as an audio file.
+    save_tracks: list of 0-based track numbers to save as audio files; overrides save_others/save_kept.
+    No re-encoding."""
     M = MSG.get(lang, MSG["en"])
 
     def say(key, **kw):
@@ -454,10 +458,13 @@ def extract_tracks(video, ffmpeg=None, keep=0, save_others=True, save_kept=False
     if not (-1 <= keep < len(streams)):
         raise SplitError(M["x_bad"])
     base = os.path.splitext(video)[0]
-    to_save = [s for s in streams if (s["index"] != keep and save_others) or (s["index"] == keep and save_kept)]
+    if save_tracks is not None:
+        to_save = [s for s in streams if s["index"] in save_tracks]
+    else:
+        to_save = [s for s in streams if (s["index"] != keep and save_others) or (s["index"] == keep and save_kept)]
     vlabel = _label(streams[keep]) if keep >= 0 else "noaudio"
     # one track, kept and saved as audio: a video copy would be pointless -> audio only
-    audio_only = keep >= 0 and save_kept and len(streams) == 1
+    audio_only = keep >= 0 and len(streams) == 1 and any(s["index"] == keep for s in to_save)
     patterns = ([] if audio_only else ["{base}_video_{vl}{n}.mp4"]) + \
                ["{base}_audio_%s{n}%s" % (_label(s), AUDIO_EXT.get(s["codec"], ".mka")) for s in to_save]
     suf = unique_suffix(patterns, base=base, vl=vlabel)
@@ -498,7 +505,8 @@ def extract_tracks(video, ffmpeg=None, keep=0, save_others=True, save_kept=False
 
 # ------------------------------------------------------------------ main
 def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_scale=1.0,
-            save_features=True, log=print, progress=None, lang="en", save_audio_files=True):
+            save_features=True, log=print, progress=None, lang="en", save_audio_files=True,
+            audio_which="both"):
     """Split the interleaved audio of `video`. Returns a dict with output paths."""
     M = MSG.get(lang, MSG["en"])
 
@@ -624,18 +632,23 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             log(r.stderr)
             raise SplitError(M["e_mux"].format(a=fa, b=fb))
         ma, mb = fa.replace(".aac", ".m4a"), fb.replace(".aac", ".m4a")
+        want = {fa: audio_which in ("both", "pc"), fb: audio_which in ("both", "mic")}
         for f in (fa, fb):
-            if save_audio_files:
+            if save_audio_files and want[f]:
                 _run([ff, "-y", "-v", "error", "-i", f, "-c", "copy", "-bsf:a", "aac_adtstoasc",
                       f.replace(".aac", ".m4a")])
             os.remove(f)
         if progress:
             progress(1.0)
         say("done", out=out)
-        if save_audio_files:
-            say("done2", a=ma, b=mb)
-        else:
+        if not save_audio_files:
             ma = mb = None
+        else:
+            if not want[fa]:
+                ma = None
+            if not want[fb]:
+                mb = None
+            say("done3", files=", ".join(x for x in (ma, mb) if x))
         outputs = {"video": out, "pc": ma, "mic": mb, "audio_min": max(dur_a, dur_b) / 60,
                    "video_min": (vdur / 60) if vdur else None}
         return outputs

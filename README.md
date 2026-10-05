@@ -40,6 +40,14 @@ Options:
   video is shorter than the sound and the lag grows towards the end. This option rescales video timestamps
   (no re-encoding). Use it when the log says the audio is much longer than the video.
 
+### How to tell that you have this problem
+
+You repaired a ShadowPlay recording (two audio tracks) with [untrunc](https://github.com/anthwlock/untrunc) and:
+- untrunc printed `duplicate codecs found, but no (simple) track order found` and `pruned empty 'mp4a' track`;
+- the repaired video has one audio track that is about **twice as long as the picture** (PC sound and microphone alternate in ~1 s pieces), and the second track is empty.
+
+That is exactly what this tool separates.
+
 ### Extract tracks from a normal video
 
 If the video is fine and already has several audio tracks (for example PC + mic), the second mode
@@ -93,6 +101,11 @@ License: MIT. Author: [BraigDun11](https://github.com/BraigDun11). Developed tog
 > **v1.2:** перетаскивание видео в окно; режим «достать дорожки» работает и для видео с одной дорожкой
 > (получится видео без звука + отдельный аудиофайл); результаты не перезаписываются (`_fixed`, `_fixed1`, ...);
 > отчёты лежат в `Документы\ShadowPlay Track Splitter\Reports`; сохранение отдельных аудиофайлов — по галочке.
+
+> **Как понять, что у вас эта проблема.** Вы восстановили запись ShadowPlay (две дорожки звука) через untrunc, и он написал
+> `duplicate codecs found, but no (simple) track order found` и `pruned empty 'mp4a' track`; в итоговом видео одна
+> дорожка звука почти вдвое длиннее картинки (ПК и микрофон чередуются кусками по ~1 с), а вторая пустая.
+> Именно это программа и разделяет.
 
 
 Разделяет **звук с ПК и микрофон**, которые смешались в один аудиопоток после восстановления повреждённой
