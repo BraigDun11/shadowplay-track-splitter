@@ -68,6 +68,7 @@ MSG = {
         "x_audio": "Saving track {i} as an audio file...",
         "x_done": "DONE: {out}",
         "x_done2": "Audio files: {files}",
+        "x_done_audio": "DONE (audio only, no video needed): {files}",
     },
     "ru": {
         "no_ffmpeg": "Не найден ffmpeg. Положите ffmpeg.exe рядом с программой, добавьте его в PATH или выберите вручную.",
@@ -110,6 +111,7 @@ MSG = {
         "x_audio": "Сохраняю дорожку {i} отдельным аудиофайлом...",
         "x_done": "ГОТОВО: {out}",
         "x_done2": "Аудиофайлы: {files}",
+        "x_done_audio": "ГОТОВО (только аудио, видео не нужно): {files}",
     },
 }
 
@@ -454,19 +456,24 @@ def extract_tracks(video, ffmpeg=None, keep=0, save_others=True, save_kept=False
     base = os.path.splitext(video)[0]
     to_save = [s for s in streams if (s["index"] != keep and save_others) or (s["index"] == keep and save_kept)]
     vlabel = _label(streams[keep]) if keep >= 0 else "noaudio"
-    patterns = ["{base}_video_{vl}{n}.mp4"] + \
+    # one track, kept and saved as audio: a video copy would be pointless -> audio only
+    audio_only = keep >= 0 and save_kept and len(streams) == 1
+    patterns = ([] if audio_only else ["{base}_video_{vl}{n}.mp4"]) + \
                ["{base}_audio_%s{n}%s" % (_label(s), AUDIO_EXT.get(s["codec"], ".mka")) for s in to_save]
     suf = unique_suffix(patterns, base=base, vl=vlabel)
     out = "%s_video_%s%s.mp4" % (base, vlabel, suf)
-    if keep >= 0:
-        say("x_video", i=keep + 1)
-        maps = ["-map", "0:v", "-map", "0:a:%d" % keep]
+    if audio_only:
+        out = None
     else:
-        say("x_video_none")
-        maps = ["-map", "0:v"]
-    r = _run([ff, "-y", "-v", "error", "-i", video] + maps + ["-c", "copy", out], text=True)
-    if r.returncode != 0:
-        raise SplitError(M["e_extract"].format(err=r.stderr))
+        if keep >= 0:
+            say("x_video", i=keep + 1)
+            maps = ["-map", "0:v", "-map", "0:a:%d" % keep]
+        else:
+            say("x_video_none")
+            maps = ["-map", "0:v"]
+        r = _run([ff, "-y", "-v", "error", "-i", video] + maps + ["-c", "copy", out], text=True)
+        if r.returncode != 0:
+            raise SplitError(M["e_extract"].format(err=r.stderr))
     if progress:
         progress(0.5 if to_save else 1.0)
     files = []
@@ -480,9 +487,12 @@ def extract_tracks(video, ffmpeg=None, keep=0, save_others=True, save_kept=False
         files.append(fn)
         if progress:
             progress(0.5 + 0.5 * (n_ + 1) / len(to_save))
-    say("x_done", out=out)
-    if files:
-        say("x_done2", files=", ".join(files))
+    if out:
+        say("x_done", out=out)
+        if files:
+            say("x_done2", files=", ".join(files))
+    else:
+        say("x_done_audio", files=", ".join(files))
     return {"video": out, "audio": files}
 
 

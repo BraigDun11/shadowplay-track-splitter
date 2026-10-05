@@ -98,6 +98,8 @@ def main():
     r3 = core.extract_tracks(one, keep=-1, save_others=True, lang="en")
     assert len(core.probe_audio(core.find_ffmpeg(), r3["video"])) == 0, r3
     assert len(r3["audio"]) == 1 and os.path.exists(r3["audio"][0]), r3
+    r5 = core.extract_tracks(one, keep=0, save_others=False, save_kept=True, lang="en")
+    assert r5["video"] is None and len(r5["audio"]) == 1 and os.path.exists(r5["audio"][0]), r5
     # existing outputs are never overwritten
     r4 = core.process(video, lang="en")
     assert r4["video"] != res["video"] and os.path.exists(res["video"]), (r4["video"], res["video"])

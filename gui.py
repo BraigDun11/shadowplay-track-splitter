@@ -134,8 +134,8 @@ class App:
         ttk.Radiobutton(root, text=self.t["m_repair"], variable=self.mode, value="repair",
                         command=self.update_mode).pack(anchor="w", padx=24)
         self.swap = tk.BooleanVar(value=False)
-        self.stretch = tk.BooleanVar(value=False)
-        self.save_audio = tk.BooleanVar(value=True)
+        self.stretch = tk.BooleanVar(value=True)
+        self.save_audio = tk.BooleanVar(value=False)
         self.cb_swap = ttk.Checkbutton(root, text=self.t["swap"], variable=self.swap)
         self.cb_swap.pack(anchor="w", padx=48)
         self.cb_stretch = ttk.Checkbutton(root, text=self.t["stretch"], variable=self.stretch)
