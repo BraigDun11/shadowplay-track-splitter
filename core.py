@@ -486,6 +486,9 @@ def silent_packet(ffmpeg, data, frames, m, sr, ch):
     return d[o:o + l]
 
 
+FILL_MIN = 6
+
+
 def build_tracks(data, frames, runs, n, P, Lm, sil):
     """Cut the interleaved packet stream into two tracks (bit-exact).
 
@@ -518,11 +521,13 @@ def build_tracks(data, frames, runs, n, P, Lm, sil):
             # after a stereo run the PC track should lead by one chunk, after a mono run they are level
             expect = true_len[1] if t == 1 else true_len[1] - true_len[0]
             x = (n_s - n_m) - expect
-            if x >= 2:                           # the microphone is behind
+            # small deviations are ordinary chunk-length jitter: filling them would put a click into the
+            # audio every few seconds, so only a real loss (a few packets or more) is filled
+            if x >= FILL_MIN:                     # the microphone is behind
                 mono += sil * x
                 n_m += x
                 filled[0] += x
-            elif x <= -2:                        # the PC track is behind
+            elif x <= -FILL_MIN:                 # the PC track is behind
                 stereo += sil * (-x)
                 n_s += -x
                 filled[1] += -x

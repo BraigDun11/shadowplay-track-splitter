@@ -29,7 +29,7 @@ except Exception:  # pragma: no cover
     DND_FILES = TkinterDnD = None
     HAVE_DND = False
 
-APP_VERSION = "1.4.1"
+APP_VERSION = "1.4.2"
 
 # palette taken from the design mock-ups
 GREEN = "#55D900"
@@ -63,7 +63,7 @@ UI = {
         "failed": "Something went wrong",
         "open": "Open folder",
         "reports": "Reports folder",
-        "ffmpeg_ok": "ffmpeg found",
+        "ffmpeg_ok": "app version v%s",
         "ffmpeg_no": "ffmpeg not found - click to choose ffmpeg.exe",
         "ffmpeg_dialog": "Choose ffmpeg.exe",
         "no_ffmpeg": "ffmpeg was not found.\nDownload it from https://www.gyan.dev/ffmpeg/builds/ (essentials build) "
@@ -113,7 +113,7 @@ UI = {
         "failed": "Что-то пошло не так",
         "open": "Открыть папку",
         "reports": "Папка отчетов",
-        "ffmpeg_ok": "ffmpeg найден",
+        "ffmpeg_ok": "версия приложения v%s",
         "ffmpeg_no": "ffmpeg не найден - нажми, чтобы указать ffmpeg.exe",
         "ffmpeg_dialog": "Выберите ffmpeg.exe",
         "no_ffmpeg": "Не найден ffmpeg.\nСкачайте его на https://www.gyan.dev/ffmpeg/builds/ (essentials) и либо "
@@ -439,7 +439,7 @@ class App:
 
     def render_ffmpeg(self):
         if self.ffmpeg:
-            self.text(390, H - 16, self.t["ffmpeg_ok"], self.f_tiny, DIM, "center")
+            self.text(390, H - 16, self.t["ffmpeg_ok"] % APP_VERSION, self.f_tiny, DIM, "center")
         else:
             self.text(390, H - 16, self.t["ffmpeg_no"], self.f_tiny, RED, "center")
             self.add_hit(150, H - 30, 630, H, self.pick_ffmpeg, "ffmpeg")
