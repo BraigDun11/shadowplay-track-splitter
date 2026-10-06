@@ -40,6 +40,11 @@ Options:
   video is shorter than the sound and the lag grows towards the end. This option rescales video timestamps
   (no re-encoding). Use it when the log says the audio is much longer than the video.
 
+### Settings (gear in the corner)
+- Folder for the results (default `Documents\ShadowPlay Track Splitter\Fixed`); the program checks free disk space before starting and warns you if it is not enough.
+- Shows whether ffmpeg is installed and lets you point to `ffmpeg.exe`.
+- The mode is chosen by you (no automatic guessing).
+
 ### How to tell that you have this problem
 
 You repaired a ShadowPlay recording (two audio tracks) with [untrunc](https://github.com/anthwlock/untrunc) and:

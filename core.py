@@ -11,7 +11,10 @@ This module finds the chunk schedule, rebuilds the two tracks bit-exactly from t
 original AAC packets (no re-encoding) and muxes them back into the video.
 """
 import collections
+import errno
+import json
 import os
+import shutil
 import re
 import subprocess
 import sys
@@ -69,6 +72,7 @@ MSG = {
         "x_done": "DONE: {out}",
         "x_done2": "Audio files: {files}",
         "done3": "Audio files: {files}",
+        "nospace": "Not enough free space on the disk where the results are saved. Free up space or choose another folder in the settings (the gear in the corner) and start again.",
         "x_done_audio": "DONE (audio only, no video needed): {files}",
     },
     "ru": {
@@ -113,6 +117,7 @@ MSG = {
         "x_done": "ГОТОВО: {out}",
         "x_done2": "Аудиофайлы: {files}",
         "done3": "Аудиофайлы: {files}",
+        "nospace": "Не хватило места на диске, куда сохраняются результаты. Освободите место или выберите другую папку в настройках (шестерёнка в углу) и запустите снова.",
         "x_done_audio": "ГОТОВО (только аудио, видео не нужно): {files}",
     },
 }
@@ -168,6 +173,22 @@ def reports_dir():
     return d
 
 
+def out_base(video, out_dir=None):
+    """Path prefix for the result files: <out_dir>/<video name> (next to the video if no folder is given)."""
+    name = os.path.splitext(os.path.basename(video))[0]
+    d = out_dir or os.path.dirname(os.path.abspath(video))
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, name)
+
+
+def ff_error(M, r, key="e_extract"):
+    """SplitError for a failed ffmpeg call; a full disk gets its own clear message."""
+    err = r.stderr or ""
+    if "No space left" in err or "not enough space" in err.lower():
+        return SplitError(M["nospace"])
+    return SplitError(M[key].format(err=err))
+
+
 def unique_suffix(patterns, **kw):
     """Smallest suffix '', '1', '2', ... for which none of the files named by `patterns` exists.
     Each pattern is a format string with {n}, e.g. '{base}_fixed{n}.mp4'."""
@@ -192,6 +213,70 @@ def save_report(video, lines, version=""):
         return path
     except OSError:
         return None
+
+
+def default_out_dir():
+    """Where repaired videos go by default: Documents/ShadowPlay Track Splitter/Fixed."""
+    return os.path.join(documents_dir(), "ShadowPlay Track Splitter", "Fixed")
+
+
+def settings_path():
+    return os.path.join(documents_dir(), "ShadowPlay Track Splitter", "settings.json")
+
+
+def load_settings():
+    try:
+        with open(settings_path(), "r", encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_settings(d):
+    try:
+        os.makedirs(os.path.dirname(settings_path()), exist_ok=True)
+        with open(settings_path(), "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False, indent=1)
+        return True
+    except OSError:
+        return False
+
+
+def free_bytes(path):
+    """Free space of the disk that holds `path` (the folder may not exist yet)."""
+    p = os.path.abspath(path)
+    while p and not os.path.exists(p):
+        up = os.path.dirname(p)
+        if up == p:
+            break
+        p = up
+    try:
+        return shutil.disk_usage(p).free
+    except OSError:
+        return None
+
+
+MB = 1024 * 1024
+
+
+def needed_space(video, streams, mode, stream=0, keep=-1, save_tracks=(), save_audio=False):
+    """Rough number of bytes the job needs in the output folder (a bit more than is really used).
+    mode 'repair': new video + two tracks (+ temporary copies) ; 'extract': new video + saved audio files."""
+    try:
+        total = os.path.getsize(video)
+    except OSError:
+        return 0
+    audio = {s["index"]: s.get("mb", 0.0) * MB for s in streams}
+    if mode == "repair":
+        a = audio.get(stream) or total * 0.5
+        need = (total - a) + a * (3 + (1 if save_audio else 0))
+    else:
+        a_all = sum(audio.values())
+        video_part = max(total - a_all, 0)
+        kept = audio.get(keep, 0) if keep >= 0 else 0
+        need = video_part + kept + sum(audio.get(i, 0) for i in save_tracks)
+    return int(need * 1.05 + 100 * MB)
 
 
 # ----------------------------------------------------------------- ffmpeg
@@ -481,13 +566,13 @@ def _label(s):
 
 
 def extract_tracks(video, ffmpeg=None, keep=0, save_others=True, save_kept=False,
-                   log=print, progress=None, lang="en", save_tracks=None):
+                   log=print, progress=None, lang="en", save_tracks=None, out_dir=None):
     """Normal video with one or more audio tracks.
     keep >= 0: the video keeps track `keep` (0-based); keep == -1: the video gets no sound.
     save_others: save the tracks NOT kept in the video as separate audio files.
     save_kept: also save the kept track as an audio file.
     save_tracks: list of 0-based track numbers to save as audio files; overrides save_others/save_kept.
-    No re-encoding."""
+    out_dir: folder for the results (default: next to the video).  No re-encoding."""
     M = MSG.get(lang, MSG["en"])
 
     def say(key, **kw):
@@ -506,7 +591,7 @@ def extract_tracks(video, ffmpeg=None, keep=0, save_others=True, save_kept=False
             title=(" '%s'" % s["title"]) if s["title"] else "", size=s["mb"])
     if not (-1 <= keep < len(streams)):
         raise SplitError(M["x_bad"])
-    base = os.path.splitext(video)[0]
+    base = out_base(video, out_dir)
     if save_tracks is not None:
         to_save = [s for s in streams if s["index"] in save_tracks]
     else:
@@ -518,44 +603,55 @@ def extract_tracks(video, ffmpeg=None, keep=0, save_others=True, save_kept=False
                ["{base}_audio_%s{n}%s" % (_label(s), AUDIO_EXT.get(s["codec"], ".mka")) for s in to_save]
     suf = unique_suffix(patterns, base=base, vl=vlabel)
     out = "%s_video_%s%s.mp4" % (base, vlabel, suf)
-    if audio_only:
-        out = None
-    else:
-        if keep >= 0:
-            say("x_video", i=keep + 1)
-            maps = ["-map", "0:v", "-map", "0:a:%d" % keep]
-        else:
-            say("x_video_none")
-            maps = ["-map", "0:v"]
-        r = _run([ff, "-y", "-v", "error", "-i", video] + maps + ["-c", "copy", out], text=True)
-        if r.returncode != 0:
-            raise SplitError(M["e_extract"].format(err=r.stderr))
-    if progress:
-        progress(0.5 if to_save else 1.0)
     files = []
-    for n_, s in enumerate(to_save):
-        fn = "%s_audio_%s%s%s" % (base, _label(s), suf, AUDIO_EXT.get(s["codec"], ".mka"))
-        say("x_audio", i=s["index"] + 1)
-        r = _run([ff, "-y", "-v", "error", "-i", video, "-map", "0:a:%d" % s["index"],
-                  "-vn", "-c", "copy", fn], text=True)
-        if r.returncode != 0:
-            raise SplitError(M["e_extract"].format(err=r.stderr))
-        files.append(fn)
+    ok = False
+    try:
+        if audio_only:
+            out = None
+        else:
+            if keep >= 0:
+                say("x_video", i=keep + 1)
+                maps = ["-map", "0:v", "-map", "0:a:%d" % keep]
+            else:
+                say("x_video_none")
+                maps = ["-map", "0:v"]
+            r = _run([ff, "-y", "-v", "error", "-i", video] + maps + ["-c", "copy", out], text=True)
+            if r.returncode != 0:
+                raise ff_error(M, r)
         if progress:
-            progress(0.5 + 0.5 * (n_ + 1) / len(to_save))
-    if out:
-        say("x_done", out=out)
-        if files:
-            say("x_done2", files=", ".join(files))
-    else:
-        say("x_done_audio", files=", ".join(files))
-    return {"video": out, "audio": files}
+            progress(0.5 if to_save else 1.0)
+        for n_, s in enumerate(to_save):
+            fn = "%s_audio_%s%s%s" % (base, _label(s), suf, AUDIO_EXT.get(s["codec"], ".mka"))
+            say("x_audio", i=s["index"] + 1)
+            files.append(fn)
+            r = _run([ff, "-y", "-v", "error", "-i", video, "-map", "0:a:%d" % s["index"],
+                      "-vn", "-c", "copy", fn], text=True)
+            if r.returncode != 0:
+                raise ff_error(M, r)
+            if progress:
+                progress(0.5 + 0.5 * (n_ + 1) / len(to_save))
+        if out:
+            say("x_done", out=out)
+            if files:
+                say("x_done2", files=", ".join(files))
+        else:
+            say("x_done_audio", files=", ".join(files))
+        ok = True
+        return {"video": out, "audio": files}
+    finally:
+        if not ok:                                   # never leave half-written results behind
+            for f in ([out] if out else []) + files:
+                try:
+                    if os.path.exists(f):
+                        os.remove(f)
+                except OSError:
+                    pass
 
 
 # ------------------------------------------------------------------ main
 def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_scale=1.0,
             save_features=True, log=print, progress=None, lang="en", save_audio_files=True,
-            audio_which="both"):
+            audio_which="both", out_dir=None):
     """Split the interleaved audio of `video`. Returns a dict with output paths."""
     M = MSG.get(lang, MSG["en"])
 
@@ -571,11 +667,12 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
     ff = find_ffmpeg(ffmpeg)
     if not ff:
         raise SplitError(M["no_ffmpeg"])
-    base = os.path.splitext(video)[0]
-    fd, raw = tempfile.mkstemp(prefix="_raw_", suffix=".aac", dir=os.path.dirname(os.path.abspath(video)))
+    base = out_base(video, out_dir)
+    fd, raw = tempfile.mkstemp(prefix="_raw_", suffix=".aac", dir=os.path.dirname(base))
     os.close(fd)
     outputs = {}
-    fa = fb = None
+    fa = fb = out = None
+    ok = False
     try:
         say("s1")
         r = _run([ff, "-y", "-v", "error", "-i", video, "-map", "0:a:%d" % stream,
@@ -583,7 +680,7 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
         if r.returncode != 0 or not os.path.exists(raw):
             if "moov atom not found" in (r.stderr or ""):
                 raise SplitError(M["moov"])
-            raise SplitError(M["e_extract"].format(err=r.stderr))
+            raise ff_error(M, r)
         if progress:
             progress(0.05)
 
@@ -683,6 +780,8 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
         r = _run(cmd, text=True)
         if r.returncode != 0:
             log(r.stderr)
+            if "No space left" in (r.stderr or ""):
+                raise SplitError(M["nospace"])
             raise SplitError(M["e_mux"].format(a=fa, b=fb))
         ma, mb = fa.replace(".aac", ".m4a"), fb.replace(".aac", ".m4a")
         want = {fa: audio_which in ("both", "pc"), fb: audio_which in ("both", "mic")}
@@ -704,8 +803,18 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             say("done3", files=", ".join(x for x in (ma, mb) if x))
         outputs = {"video": out, "pc": ma, "mic": mb, "audio_min": max(dur_a, dur_b) / 60,
                    "video_min": (vdur / 60) if vdur else None}
+        ok = True
         return outputs
+    except OSError as ex:
+        if ex.errno == errno.ENOSPC:
+            raise SplitError(M["nospace"])
+        raise
     finally:
+        if not ok and out and os.path.exists(out):    # never leave a half-written video behind
+            try:
+                os.remove(out)
+            except OSError:
+                pass
         for f in (raw, fa, fb):
             if f and os.path.exists(f):
                 try:

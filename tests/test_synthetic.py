@@ -103,6 +103,13 @@ def main():
     # existing outputs are never overwritten
     r4 = core.process(video, lang="en")
     assert r4["video"] != res["video"] and os.path.exists(res["video"]), (r4["video"], res["video"])
+    # results can go to another folder; a failed job leaves nothing half-written behind
+    od = os.path.join(tmp, "results", "Fixed")
+    r6 = core.process(video, out_dir=od, lang="en")
+    assert os.path.dirname(r6["video"]) == od and os.path.exists(r6["video"]), r6
+    assert not [f for f in os.listdir(od) if f.startswith("_raw_")], os.listdir(od)
+    assert core.needed_space(video, core.probe_audio(core.find_ffmpeg(), video), "repair") > os.path.getsize(video)
+    assert core.free_bytes(os.path.join(od, "not", "yet", "there")) > 0
     print("EXTRACT OK")
     print("OK")
 

@@ -24,14 +24,16 @@ def main():
     ap.add_argument("--no-save-others", action="store_true", help="with --extract: do not save other tracks")
     ap.add_argument("--save-kept", action="store_true", help="with --extract: also save the kept track as audio")
     ap.add_argument("--no-save-audio", action="store_true", help="repair mode: do not write separate .m4a files")
+    ap.add_argument("--out-dir", help="folder for the results (default: next to the video)")
     a = ap.parse_args()
     lang = a.lang or core.detect_lang()
     try:
         if a.extract:
-            core.extract_tracks(a.video, a.ffmpeg, a.keep - 1, not a.no_save_others, a.save_kept, print, None, lang)
+            core.extract_tracks(a.video, a.ffmpeg, a.keep - 1, not a.no_save_others, a.save_kept, print, None, lang,
+                                out_dir=a.out_dir)
             return
         core.process(a.video, a.ffmpeg, a.stream, a.swap, a.match_video, a.video_scale,
-                     True, print, None, lang, not a.no_save_audio)
+                     True, print, None, lang, not a.no_save_audio, out_dir=a.out_dir)
     except core.SplitError as e:
         sys.exit(str(e))
 

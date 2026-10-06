@@ -7,9 +7,11 @@ The whole window is one canvas that is redrawn from a small state (see App.rende
   working - the job runs: progress bar and the current step
   done    - finished: "Done!" and the buttons that open the folders
 """
+import math
 import os
 import queue
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -27,7 +29,7 @@ except Exception:  # pragma: no cover
     DND_FILES = TkinterDnD = None
     HAVE_DND = False
 
-APP_VERSION = "1.4"
+APP_VERSION = "1.5"
 
 # palette taken from the design mock-ups
 GREEN = "#55D900"
@@ -65,7 +67,7 @@ UI = {
         "ffmpeg_no": "ffmpeg not found - click to choose ffmpeg.exe",
         "ffmpeg_dialog": "Choose ffmpeg.exe",
         "no_ffmpeg": "ffmpeg was not found.\nDownload it from https://www.gyan.dev/ffmpeg/builds/ (essentials build) "
-                     "and either put ffmpeg.exe next to this program or choose it by clicking the text at the bottom.",
+                     "and either put ffmpeg.exe next to this program or choose it in the settings (the gear in the corner).",
         "nothing_to_do": "Nothing to do: the video already has this single track. "
                          "Choose \"No sound\" or tick \"Save audio tracks as separate files\".",
         "error": "Error",
@@ -77,6 +79,21 @@ UI = {
         "hint_extract": "The video has normal audio tracks ({n}).",
         "hint_unreadable": "Could not read this file. If it is the original damaged recording, repair it first.",
         "empty_track": " (empty)",
+        "settings": "Settings",
+        "out_folder": "Folder for repaired videos",
+        "change": "Change",
+        "reset_default": "Back to default folder",
+        "free": "Free space: {gb:.1f} GB",
+        "ffmpeg_title": "ffmpeg",
+        "ffmpeg_installed": "Installed",
+        "ffmpeg_missing": "Not found - it is needed to work with video",
+        "choose": "Choose...",
+        "close": "Done",
+        "audio_only": "Audio only",
+        "tracks_info": "Audio tracks in the file: {n}.",
+        "pick_folder": "Choose the folder for repaired videos",
+        "need_space": "Not enough free space on drive {where}: about {need:.1f} GB needed, {free:.1f} GB free.\n\n"
+                      "Free up space or choose another folder in the settings (gear). Open the settings now?",
     },
     "ru": {
         "title": "ShadowPlay Track Splitter",
@@ -100,7 +117,7 @@ UI = {
         "ffmpeg_no": "ffmpeg не найден - нажми, чтобы указать ffmpeg.exe",
         "ffmpeg_dialog": "Выберите ffmpeg.exe",
         "no_ffmpeg": "Не найден ffmpeg.\nСкачайте его на https://www.gyan.dev/ffmpeg/builds/ (essentials) и либо "
-                     "положите ffmpeg.exe рядом с программой, либо выберите его, нажав на текст внизу окна.",
+                     "положите ffmpeg.exe рядом с программой, либо выберите его в настройках (шестерёнка в углу).",
         "nothing_to_do": "Нечего делать: в видео уже лежит эта единственная дорожка. "
                          "Выберите «Без звука» или включите «Сохранить аудиодорожки отдельными файлами».",
         "error": "Ошибка",
@@ -112,6 +129,21 @@ UI = {
         "hint_extract": "В видео обычные аудиодорожки ({n}).",
         "hint_unreadable": "Не получилось прочитать файл. Если это исходная повреждённая запись, сначала восстановите её.",
         "empty_track": " (пустая)",
+        "settings": "Настройки",
+        "out_folder": "Папка для восстановленных видео",
+        "change": "Изменить",
+        "reset_default": "Вернуть папку по умолчанию",
+        "free": "Свободно на диске: {gb:.1f} ГБ",
+        "ffmpeg_title": "ffmpeg",
+        "ffmpeg_installed": "Установлен",
+        "ffmpeg_missing": "Не найден - он нужен для работы с видео",
+        "choose": "Указать...",
+        "close": "Готово",
+        "audio_only": "Только звук",
+        "tracks_info": "Аудиодорожек в файле: {n}.",
+        "pick_folder": "Выберите папку для восстановленных видео",
+        "need_space": "Не хватает места на диске {where}: нужно примерно {need:.1f} ГБ, свободно {free:.1f} ГБ.\n\n"
+                      "Освободите место или выберите другую папку в настройках (шестерёнка). Открыть настройки сейчас?",
     },
 }
 
@@ -128,7 +160,9 @@ class App:
         self.lang = core.detect_lang()
         self.t = UI[self.lang]
         self.q = queue.Queue()
-        self.ffmpeg = core.find_ffmpeg()
+        self.cfg = core.load_settings()
+        self.ffmpeg = core.find_ffmpeg(self.cfg.get("ffmpeg")) or core.find_ffmpeg()
+        self.settings_open = False
 
         try:
             self.k = max(1.0, root.winfo_fpixels("1i") / 96.0)
@@ -300,6 +334,10 @@ class App:
         self.hits = []
         t = self.t
         working = self.state == "working"
+        if self.settings_open:
+            self.render_settings()
+            return
+        self.render_gear(working)
 
         # card with the frame / drop zone
         self.rrect(110, 32, 670, 247, 28, PANEL)
@@ -351,19 +389,27 @@ class App:
                 self.dropdown(670, y + 80, items[self.save_choice], items, self.save_choice, self.set_save_choice,
                               "save_dd")
         else:
-            items = [t["no_audio"]] + [self.track_label(s) for s in self.streams]
+            n = len(self.streams)
+            if n == 1:
+                items = [t["no_audio"], t["audio_only"]]
+            else:
+                items = [t["no_audio"]] + [self.track_label(s) for s in self.streams]
             self.keep_idx = min(self.keep_idx, len(items) - 1)
             self.text(110, y, t["video_sound"], self.f_small, WHITE, "w")
             if ok:
                 self.dropdown(670, y, items[self.keep_idx], items, self.keep_idx, self.set_keep, "keep_dd")
             else:
                 self.text(670, y, items[self.keep_idx], self.f_small, GRAY, "e")
-            self.checkbox(110, y + 40, t["save"], self.save, lambda: self.toggle("save"), "save", ok)
-            sitems = [t["all"]] + [self.track_label(s) for s in self.streams]
-            self.save_choice = min(self.save_choice, len(sitems) - 1)
-            if ok:
-                self.dropdown(670, y + 40, sitems[self.save_choice], sitems, self.save_choice, self.set_save_choice,
-                              "save_dd")
+            if n == 1:
+                # one track: saving it is part of the choice above, so the box is shown but locked
+                self.checkbox(110, y + 40, t["save"], True, lambda: None, "save", False)
+            else:
+                self.checkbox(110, y + 40, t["save"], self.save, lambda: self.toggle("save"), "save", ok)
+                sitems = [t["all"]] + [self.track_label(s) for s in self.streams]
+                self.save_choice = min(self.save_choice, len(sitems) - 1)
+                if ok:
+                    self.dropdown(670, y + 40, sitems[self.save_choice], sitems, self.save_choice,
+                                  self.set_save_choice, "save_dd")
 
     def render_bottom(self, working):
         t = self.t
@@ -397,6 +443,106 @@ class App:
         else:
             self.text(390, H - 16, self.t["ffmpeg_no"], self.f_tiny, RED, "center")
             self.add_hit(150, H - 30, 630, H, self.pick_ffmpeg, "ffmpeg")
+
+    # ------------------------------------------------------------ gear + settings
+    def gear(self, cx, cy, color, r=13):
+        """A small gear drawn from a polygon: 8 teeth and a hole."""
+        S = self.S
+        pts = []
+        teeth = 8
+        for k in range(teeth):
+            a0 = 2 * math.pi * k / teeth
+            for da, rad in ((-0.30, r * 0.72), (-0.16, r), (0.16, r), (0.30, r * 0.72)):
+                a = a0 + da
+                pts += [S(cx + rad * math.cos(a)), S(cy + rad * math.sin(a))]
+        self.cv.create_polygon(pts, fill=color, outline=color, smooth=False)
+        self.cv.create_oval(S(cx - r * 0.72), S(cy - r * 0.72), S(cx + r * 0.72), S(cy + r * 0.72),
+                            fill=color, outline=color)
+        self.cv.create_oval(S(cx - r * 0.32), S(cy - r * 0.32), S(cx + r * 0.32), S(cy + r * 0.32),
+                            fill=BG, outline=BG)
+
+    def render_gear(self, working):
+        hi = self.hovered("gear")
+        self.gear(738, 30, WHITE if hi else GRAY)
+        if not working:
+            self.add_hit(716, 8, 760, 52, self.open_settings, "gear")
+
+    def open_settings(self):
+        self.settings_open = True
+        self.menu = None
+        self.render()
+
+    def close_settings(self):
+        self.settings_open = False
+        self.render()
+
+    def out_dir_cfg(self):
+        return self.cfg.get("out_dir") or core.default_out_dir()
+
+    def save_cfg(self):
+        core.save_settings(self.cfg)
+
+    def choose_out_dir(self):
+        cur = self.out_dir_cfg()
+        init = cur if os.path.isdir(cur) else core.documents_dir()
+        p = filedialog.askdirectory(title=self.t["pick_folder"], initialdir=init)
+        if p:
+            self.cfg["out_dir"] = os.path.normpath(p)
+            self.save_cfg()
+            self.render()
+
+    def reset_out_dir(self):
+        self.cfg.pop("out_dir", None)
+        self.save_cfg()
+        self.render()
+
+    def choose_ffmpeg(self):
+        p = filedialog.askopenfilename(title=self.t["ffmpeg_dialog"],
+                                       filetypes=[("ffmpeg", "ffmpeg*"), (self.t["all_types"], "*.*")])
+        if p:
+            found = core.find_ffmpeg(p)
+            if found:
+                self.ffmpeg = found
+                self.cfg["ffmpeg"] = found
+                self.save_cfg()
+                if self.video:
+                    self.set_video(self.video)
+            self.render()
+
+    def render_settings(self):
+        t = self.t
+        self.text(390, 52, t["settings"], self.f_big, WHITE, "center")
+        # output folder
+        self.rrect(110, 96, 670, 236, 24, PANEL)
+        self.text(134, 122, t["out_folder"], self.f_small, GRAY, "w")
+        path = self.out_dir_cfg()
+        self.text(134, 156, self.fit(path, self.f_med, 400), self.f_med, WHITE, "w")
+        free = core.free_bytes(path)
+        if free is not None:
+            gb = free / 1024 ** 3
+            self.text(134, 192, t["free"].format(gb=gb), self.f_tiny, RED if gb < 5 else GRAY, "w")
+        self.pill(550, 140, 650, 172, t["change"], self.choose_out_dir, "chg", fill=BG, font=self.f_small)
+        if self.cfg.get("out_dir"):
+            self.text(134, 214, t["reset_default"], self.f_tiny, GREEN, "w")
+            self.add_hit(134, 204, 134 + int(self.f_tiny.measure(t["reset_default"]) / self.k), 224,
+                         self.reset_out_dir, "reset")
+        # ffmpeg
+        self.rrect(110, 262, 670, 372, 24, PANEL)
+        self.text(134, 288, t["ffmpeg_title"], self.f_small, GRAY, "w")
+        if self.ffmpeg:
+            self.text(134, 320, t["ffmpeg_installed"], self.f_med, GREEN, "w")
+            shown = self.ffmpeg if os.path.isabs(self.ffmpeg) else (shutil.which(self.ffmpeg) or self.ffmpeg)
+            self.text(134, 348, self.fit(shown, self.f_tiny, 400), self.f_tiny, GRAY, "w")
+        else:
+            self.text(134, 320, self.fit(t["ffmpeg_missing"], self.f_med, 400), self.f_med, RED, "w")
+        self.pill(550, 306, 650, 338, t["choose"], self.choose_ffmpeg, "ffm", fill=BG, font=self.f_small)
+        # close
+        hi = self.hovered("close")
+        self.rrect(260, 600, 520, 634, 17, "#6BF000" if hi else GREEN)
+        self.text(390, 617, t["close"], self.f_med, WHITE, "center")
+        self.add_hit(260, 600, 520, 634, self.close_settings, "close")
+        if self.menu:
+            self.render_menu()
 
     # ------------------------------------------------------------ drop-down menu
     def open_menu(self, items, x, y, w, cb):
@@ -484,7 +630,7 @@ class App:
             self.keep_idx = 1                # first track stays in the video
             self.save_choice = 2             # the second track goes to a file
         else:
-            self.keep_idx = 0                # silent video + the audio as a file
+            self.keep_idx = 0                # one track: silent video + the audio as a file
             self.save_choice = 0
 
     # ------------------------------------------------------------ choosing a file
@@ -541,16 +687,10 @@ class App:
             self.render()
             return
         self.streams = streams
-        full = [s for s in streams if s["mb"] >= 0.01]
-        if len(streams) >= 2 and len(full) < 2:
-            self.mode = 0                    # the signature of a repaired video
+        self.extract_defaults()
+        if self.mode == 0:
             self.save, self.save_choice = False, 0
-            self.status = self.t["hint_repair"]
-        else:
-            self.mode = 1
-            self.extract_defaults()
-            self.status = self.t["hint_extract"].format(n=len(streams))
-        self.status_color = GRAY
+        self.status, self.status_color = self.t["tracks_info"].format(n=len(streams)), GRAY
         self.render()
 
     def apply_thumb(self, token, path):
@@ -563,16 +703,7 @@ class App:
         self.render()
 
     def pick_ffmpeg(self):
-        p = filedialog.askopenfilename(title=self.t["ffmpeg_dialog"],
-                                       filetypes=[("ffmpeg", "ffmpeg*"), (self.t["all_types"], "*.*")])
-        if p:
-            found = core.find_ffmpeg(p)
-            if found:
-                self.ffmpeg = found
-                if self.video:
-                    self.set_video(self.video)
-                else:
-                    self.render()
+        self.open_settings()
 
     # ------------------------------------------------------------ folders
     def _open(self, path):
@@ -604,23 +735,41 @@ class App:
             messagebox.showerror(t["error"], t["no_ffmpeg"])
             return
         n = len(self.streams)
+        if self.mode == 1 and not n:
+            messagebox.showinfo(t["title"], t["hint_unreadable"])
+            return
         opts = dict(mode=self.mode, video=self.video, ffmpeg=self.ffmpeg)
         if self.mode == 0:
             opts.update(swap=self.swap, stretch=self.stretch, save=self.save,
                         which=["both", "pc", "mic"][min(self.save_choice, 2)])
         else:
-            keep = self.keep_idx - 1                       # 0 in the list = "no sound" -> -1
-            if not self.save:
-                save_tracks = []
-            elif self.save_choice == 0:
-                save_tracks = list(range(n))
+            if n == 1:
+                # "No sound": silent video + the audio file;  "Audio only": just the audio file
+                keep = -1 if self.keep_idx == 0 else 0
+                save_tracks = [0]
             else:
-                save_tracks = [self.save_choice - 1]
-            if keep >= 0 and n == 1 and not save_tracks:
-                messagebox.showinfo(t["title"], t["nothing_to_do"])
-                return
+                keep = self.keep_idx - 1                   # 0 in the list = "no sound" -> -1
+                if not self.save:
+                    save_tracks = []
+                elif self.save_choice == 0:
+                    save_tracks = list(range(n))
+                else:
+                    save_tracks = [self.save_choice - 1]
             opts.update(keep=keep, save_tracks=save_tracks)
-        self.out_dir = os.path.dirname(os.path.abspath(self.video))
+        out_dir = self.out_dir_cfg()
+        opts["out_dir"] = out_dir
+        # enough room for the result?  (a full disk used to leave a half-written video)
+        need = core.needed_space(self.video, self.streams, "repair" if self.mode == 0 else "extract",
+                                 keep=opts.get("keep", -1), save_tracks=opts.get("save_tracks", ()),
+                                 save_audio=bool(opts.get("save")))
+        free = core.free_bytes(out_dir)
+        if free is not None and free < need:
+            drive = os.path.splitdrive(os.path.abspath(out_dir))[0] or out_dir
+            gb = 1024 ** 3
+            if messagebox.askyesno(t["error"], t["need_space"].format(where=drive, need=need / gb, free=free / gb)):
+                self.open_settings()
+            return
+        self.out_dir = out_dir
         self.lines = []
         self.progress = 0.0
         self.status, self.status_color = t["working"], WHITE
@@ -634,11 +783,11 @@ class App:
         try:
             if o["mode"] == 1:
                 core.extract_tracks(o["video"], ffmpeg=o["ffmpeg"], keep=o["keep"], save_tracks=o["save_tracks"],
-                                    log=log, progress=prog, lang=self.lang)
+                                    log=log, progress=prog, lang=self.lang, out_dir=o["out_dir"])
             else:
                 core.process(o["video"], ffmpeg=o["ffmpeg"], swap=o["swap"], match_video=o["stretch"],
                              log=log, progress=prog, lang=self.lang, save_audio_files=o["save"],
-                             audio_which=o["which"])
+                             audio_which=o["which"], out_dir=o["out_dir"])
             self.q.put(("done", o["video"]))
         except core.SplitError as e:
             self.q.put(("error", (o["video"], str(e))))
