@@ -20,7 +20,10 @@ for i in range(n):
     else:
         s[i] = 0.34 if mono_game else 0.45
         m[i] = 1.4 if mono_game else rng.uniform(10, 500)
-lab, ph = core.lattice_labels(s, m, P, L)
+lab, _ = core.segment_labels(s, m, P, L)
+fp = core.mic_fingerprint(s, lab)
+if fp is not None:
+    lab, _ = core.segment_labels(s, m, P, L, fp=fp)
 acc = float((lab == truth).mean())
 print("accuracy %.3f" % acc)
 assert acc > 0.98, acc

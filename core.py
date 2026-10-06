@@ -291,46 +291,82 @@ def estimate_period(s):
     return collections.Counter(sp.tolist()).most_common(1)[0][0], lm
 
 
-def lattice_labels(s, m, P, Lm, switch_cost=150.0, progress=None):
-    """Label of every packet: 1 = stereo (PC), 0 = mono (mic).
-    Chunks follow a strict schedule of period P; rare phase shifts are allowed
-    but expensive, so random noise does not trigger them."""
+def segment_labels(s, m, P, Lm, lam=0.5, jump=10.0, lmin=8, progress=None, fp=None, fpw=0.1):
+    """Label of every packet: 1 = stereo (PC), 0 = mono (mic), plus the list of chunks.
+
+    The recording is cut into alternating chunks (PC, mic, PC, ...).  A chunk normally has the
+    nominal length (P - Lm packets for PC, Lm for the mic) but may be a few packets longer or
+    shorter, or span two chunks when the other track lost one.  Dynamic programming picks the cut
+    that agrees best with the signal: clearly stereo packets belong to the PC track; every deviation
+    from the nominal length costs `lam` per packet (`jump` extra for each additional chunk).
+    Where the signal says nothing (quiet or mono-sounding passages) the nominal rhythm simply goes on.
+    fp: typical `s` of the microphone's quiet packets; lets a mono-sounding PC passage be told apart."""
     n = len(s)
+    nom = {1: P - Lm, 0: Lm}
     e = np.zeros(n)
     low = s < 0.5
     e[s > 1.0] = 1.0
-    # "Mono" packets only count as microphone evidence when stereo PC audio is plentiful.
-    # Games sometimes switch to mono sound: then PC chunks look like mic chunks, both vote
-    # "mono", and the schedule would flip by half a period (PC <-> mic swapped for a while).
-    # In that case only real stereo packets are allowed to decide the phase.
-    stereo_share = float(np.mean(s > 1.0))
-    if stereo_share < 0.05:
+    if float(np.mean(s > 1.0)) < 0.05:
         e[low & (m >= 30)] = -1.0
         e[low & (m >= 5) & (m < 30)] = -0.4
-    phi = np.arange(P)
-    T = ((np.arange(P)[:, None] - phi[None, :]) % P) < Lm
-    SG = np.where(T, -1.0, 1.0)
-    sc = np.zeros(P)
-    stay = np.zeros((n, P), dtype=bool)
-    g = np.zeros(n, dtype=np.int16)
+    if fp is not None:
+        # fp = typical s of the microphone's quiet dual-mono packets (about 0.45); a mono-sounding PC
+        # passage has a visibly lower value (about 0.3). Weak vote, only matters when nothing else does.
+        u = np.where(s >= fp - 0.03, 1.0, np.where(s <= fp - 0.12, -1.0, 0.0))
+        e = e - np.where(low, fpw * u, 0.0)
+    cs = np.r_[0.0, np.cumsum(e)]
+    lmax = 3 * max(nom.values()) + 10
+    Ls = np.arange(lmin, lmax + 1)
+    pen = {}
+    for t in (0, 1):
+        p = np.full(len(Ls), np.inf)
+        for k in (1, 2, 3):
+            p = np.minimum(p, lam * np.abs(Ls - k * nom[t]) + jump * (k - 1))
+        pen[t] = p
+    sg = {1: 1.0, 0: -1.0}
+    f = {0: np.full(n + 1, -np.inf), 1: np.full(n + 1, -np.inf)}
+    arg = {0: np.zeros(n + 1, dtype=np.int16), 1: np.zeros(n + 1, dtype=np.int16)}
     step = max(1, n // 50)
-    for i in range(n):
-        gi = int(np.argmax(sc))
-        alt = sc[gi] - switch_cost
-        st_ = sc >= alt
-        stay[i] = st_
-        g[i] = gi
-        sc = np.where(st_, sc, alt) + SG[i % P] * e[i]
+    for i in range(1, n + 1):
+        for t in (0, 1):
+            best, bl = -np.inf, 0
+            if i <= lmax:                      # the first run may start at 0 with any length
+                v = sg[t] * cs[i]
+                best, bl = v, i
+            ok = Ls <= i
+            if ok.any():
+                L = Ls[ok]
+                prev = f[1 - t][i - L]
+                cand = prev + sg[t] * (cs[i] - cs[i - L]) - pen[t][ok]
+                j = int(np.argmax(cand))
+                if cand[j] > best:
+                    best, bl = float(cand[j]), int(L[j])
+            f[t][i] = best
+            arg[t][i] = bl
         if progress and i % step == 0:
             progress(i / n)
-    cur = int(np.argmax(sc))
-    phases = np.zeros(n, dtype=np.int16)
-    for i in range(n - 1, -1, -1):
-        phases[i] = cur
-        if not stay[i, cur]:
-            cur = int(g[i])
-    mono_lab = ((np.arange(n) - phases) % P) < Lm
-    return (~mono_lab).astype(np.int8), phases
+    t = 1 if f[1][n] >= f[0][n] else 0
+    lab = np.zeros(n, dtype=np.int8)
+    i = n
+    runs = []
+    while i > 0:
+        L = int(arg[t][i])
+        lab[i - L:i] = t
+        runs.append((i - L, i, t))
+        i -= L
+        t = 1 - t
+    runs.reverse()
+    return lab, runs
+
+
+def fingerprint(s, lab):
+    b = s[(s < 0.5) & (lab == 0)]
+    return float(np.median(b)) if len(b) >= 2000 else None
+
+
+def mic_fingerprint(s, lab):
+    b = s[(s < 0.5) & (lab == 0)]
+    return float(np.median(b)) if len(b) >= 2000 else None
 
 
 def label_runs(lab):
@@ -360,32 +396,45 @@ def silent_packet(ffmpeg, data, frames, m, sr, ch):
 
 
 def build_tracks(data, frames, runs, n, P, Lm, sil):
-    """Cut the interleaved packet stream into two tracks (bit-exact)."""
+    """Cut the interleaved packet stream into two tracks (bit-exact).
+
+    Both tracks cover the same time, so after every full PC+mic pair they must be equally long.
+    Whenever one track is behind (it lost packets or a whole chunk), silence is inserted into it
+    where the loss happened; the audio itself is never changed or shifted."""
     stereo, mono = bytearray(), bytearray()
     nom = {1: P - Lm, 0: Lm}
+    true_len = {1: nom[1] - 1, 0: nom[0] + 1}   # packets in a real chunk (the decoder smears 1 packet)
+    n_s = n_m = 0                                # lengths in packets, silence included
     filled = {1: 0, 0: 0}
     for k, (b, e, t) in enumerate(runs):
         # The decoder smears each switch over 1 packet: the stereo run looks 1 packet
         # longer and the mono run 1 packet shorter. Restore the true packet borders.
         if t == 1:
-            pb, pe, out, other = b, min(e, n) - 1, stereo, mono
+            pb, pe = b, min(e, n) - 1
             if e >= n:
                 pe = n
         else:
-            pb, pe, out, other = max(b - 1, 0), e, mono, stereo
+            pb, pe = max(b - 1, 0), e
         if pe > pb:
-            out += data[frames[pb][0]: frames[pe - 1][0] + frames[pe - 1][1]]
+            chunk = data[frames[pb][0]: frames[pe - 1][0] + frames[pe - 1][1]]
+            if t == 1:
+                stereo += chunk
+                n_s += pe - pb
+            else:
+                mono += chunk
+                n_m += pe - pb
         if 0 < k < len(runs) - 1:
-            ln = e - b
-            cnt = int(round(ln / nom[t]))
-            true_other = (nom[1 - t] - 1) if t == 0 else (nom[1 - t] + 1)
-            miss = (cnt - 1) * true_other   # several chunks in a row -> other track lost a chunk
-            if cnt <= 1 and ln < nom[t] - 3:  # a too-short chunk -> part of this track lost
-                out += sil * (nom[t] - ln)
-                filled[t] += nom[t] - ln
-            if miss > 0:
-                other += sil * miss
-                filled[1 - t] += miss
+            # after a stereo run the PC track should lead by one chunk, after a mono run they are level
+            expect = true_len[1] if t == 1 else true_len[1] - true_len[0]
+            x = (n_s - n_m) - expect
+            if x >= 2:                           # the microphone is behind
+                mono += sil * x
+                n_m += x
+                filled[0] += x
+            elif x <= -2:                        # the PC track is behind
+                stereo += sil * (-x)
+                n_s += -x
+                filled[1] += -x
     return stereo, mono, filled
 
 
@@ -573,10 +622,14 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             raise SplitError(M["no_sched"].format(path=feat))
         P, Lm = est
         say("sched", p=P, lm=Lm, ls=P - Lm)
-        lab, phases = lattice_labels(s, m, P, Lm, progress=prog(0.45, 0.75))
+        lab, _ = segment_labels(s, m, P, Lm, progress=prog(0.45, 0.6))
+        fp = mic_fingerprint(s, lab)
+        if fp is not None:
+            lab, _ = segment_labels(s, m, P, Lm, fp=fp, progress=prog(0.6, 0.75))
         runs = label_runs(lab)
 
-        shifts = np.where(np.diff(phases) != 0)[0]
+        nomlen = {1: P - Lm, 0: Lm}
+        shifts = [b for b, e, t in runs if abs((e - b) - nomlen[t]) > 3]
         say("s4", n=len(shifts))
         for i in shifts[:15]:
             say("shift_at", t=stamp(i))

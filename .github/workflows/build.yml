@@ -23,6 +23,8 @@ jobs:
         run: python tests/test_synthetic.py
       - name: Mono-stretch regression test
         run: python tests/test_mono_stretch.py
+      - name: Chunk-length jitter regression test
+        run: python tests/test_jitter.py
       - name: GUI smoke test
         run: python tests/test_gui_smoke.py
       - name: Build exe
