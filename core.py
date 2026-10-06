@@ -397,7 +397,9 @@ def segment_labels(s, m, P, Lm, lam=0.5, jump=10.0, lmin=8, progress=None, fp=No
     if fp is not None:
         # fp = typical s of the microphone's quiet dual-mono packets (about 0.45); a mono-sounding PC
         # passage has a visibly lower value (about 0.3). Weak vote, only matters when nothing else does.
-        u = np.where(s >= fp - 0.03, 1.0, np.where(s <= fp - 0.12, -1.0, 0.0))
+        # mic-like votes only for packets with a real signal: digital silence (muted mic / silent PC)
+        # has a similar s and says nothing about whose chunk it is
+        u = np.where((s >= fp - 0.03) & (m > 20), 1.0, np.where(s <= fp - 0.12, -1.0, 0.0))
         e = e - np.where(low, fpw * u, 0.0)
     cs = np.r_[0.0, np.cumsum(e)]
     lmax = 3 * max(nom.values()) + 10
@@ -446,12 +448,16 @@ def segment_labels(s, m, P, Lm, lam=0.5, jump=10.0, lmin=8, progress=None, fp=No
 
 def fingerprint(s, lab):
     b = s[(s < 0.5) & (lab == 0)]
-    return float(np.median(b)) if len(b) >= 2000 else None
+    if len(b) < 2000:
+        return None
+    return float(np.median(b))
 
 
 def mic_fingerprint(s, lab):
     b = s[(s < 0.5) & (lab == 0)]
-    return float(np.median(b)) if len(b) >= 2000 else None
+    if len(b) < 2000:
+        return None
+    return float(np.median(b))
 
 
 def label_runs(lab):
