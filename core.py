@@ -14,6 +14,7 @@ import collections
 import errno
 import json
 import os
+import time
 import shutil
 import re
 import subprocess
@@ -208,7 +209,8 @@ def save_report(video, lines, version=""):
     path = os.path.join(d, "%s_report%s.txt" % (name, suf))
     try:
         with open(path, "w", encoding="utf-8") as f:
-            f.write("ShadowPlay Track Splitter %s\n\n" % version)
+            f.write("ShadowPlay Track Splitter %s\n" % version)
+            f.write("%s\n\n" % time.strftime("%Y-%m-%d %H:%M:%S"))
             f.write("\n".join(lines))
         return path
     except OSError:
