@@ -378,7 +378,32 @@ def estimate_period(s):
     return collections.Counter(sp.tolist()).most_common(1)[0][0], lm
 
 
-def segment_labels(s, m, P, Lm, lam=0.5, jump=10.0, lmin=8, progress=None, fp=None, fpw=0.1):
+PCM_PC = 0.7
+PCM_MIC = 0.4
+
+
+def estimate_period_mono(s):
+    """Fallback for recordings whose PC sound is (nearly) mono, e.g. old games: the PC chunks then
+    differ from the microphone's only by a lower s (about 0.3 against 0.44).  Returns (P, Lm) or None."""
+    q = np.where((s >= 0.40) & (s < 0.5), 1, 0).astype(np.int8)       # microphone-like packet
+    k = 5
+    sm = (np.convolve(q, np.ones(k), "same") >= 3).astype(np.int8)    # remove isolated outliers
+    d = np.diff(np.r_[0, sm, 0])
+    st = np.where(d == 1)[0]
+    en = np.where(d == -1)[0]
+    ln = en - st
+    cand = ln[(ln >= 35) & (ln <= 60)]
+    if len(cand) < 20:
+        return None
+    lm = collections.Counter(cand.tolist()).most_common(1)[0][0]
+    sp = np.diff(st[ln == lm])
+    sp = sp[(sp > 60) & (sp < 140)]
+    if len(sp) < 20:
+        return None
+    return collections.Counter(sp.tolist()).most_common(1)[0][0], lm
+
+
+def segment_labels(s, m, P, Lm, lam=0.5, jump=10.0, lmin=8, progress=None, fp=None, fpw=0.1, pcmono=False):
     """Label of every packet: 1 = stereo (PC), 0 = mono (mic), plus the list of chunks.
 
     The recording is cut into alternating chunks (PC, mic, PC, ...).  A chunk normally has the
@@ -396,6 +421,10 @@ def segment_labels(s, m, P, Lm, lam=0.5, jump=10.0, lmin=8, progress=None, fp=No
     if float(np.mean(s > 1.0)) < 0.05:
         e[low & (m >= 30)] = -1.0
         e[low & (m >= 5) & (m < 30)] = -0.4
+    if pcmono:
+        # the PC sound is mono too: the only cue is the level of s (PC about 0.3, microphone about 0.44)
+        e[(s < 0.36) & (m > 2)] = PCM_PC
+        e[(s >= 0.41) & (s < 0.5)] = -PCM_MIC
     if fp is not None:
         # fp = typical s of the microphone's quiet dual-mono packets (about 0.45); a mono-sounding PC
         # passage has a visibly lower value (about 0.3). Weak vote, only matters when nothing else does.
@@ -727,13 +756,18 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             return "%d:%02d:%02d" % (sec // 3600, sec % 3600 // 60, sec % 60)
 
         est = estimate_period(s)
+        pcmono = False
+        if est is None:
+            est = estimate_period_mono(s)      # PC sound is mono as well (old/mono games)
+            pcmono = est is not None
         if est is None:
             np.savez_compressed(feat, s=s.astype(np.float16), m=m.astype(np.float16))
             raise SplitError(M["no_sched"].format(path=feat))
         P, Lm = est
         say("sched", p=P, lm=Lm, ls=P - Lm)
-        lab, _ = segment_labels(s, m, P, Lm, progress=prog(0.45, 0.6))
-        fp = mic_fingerprint(s, lab)
+        lab, _ = segment_labels(s, m, P, Lm, progress=prog(0.45, 0.6), pcmono=pcmono,
+                               **(dict(lam=2.0, jump=30.0) if pcmono else {}))
+        fp = None if pcmono else mic_fingerprint(s, lab)
         if fp is not None:
             lab, _ = segment_labels(s, m, P, Lm, fp=fp, progress=prog(0.6, 0.75))
         runs = label_runs(lab)
@@ -744,9 +778,10 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
         for i in shifts[:15]:
             say("shift_at", t=stamp(i))
         a_st = 100 * float((lab[s > 1.0] == 1).mean()) if (s > 1.0).any() else 100.0
-        a_mo = 100 * float((lab[(s < 0.5) & (m >= 30)] == 0).mean()) if ((s < 0.5) & (m >= 30)).any() else 100.0
+        mono_sel = ((s >= 0.41) & (s < 0.5) & (m >= 30)) if pcmono else ((s < 0.5) & (m >= 30))
+        a_mo = 100 * float((lab[mono_sel] == 0).mean()) if mono_sel.any() else 100.0
         say("agree", a=a_st, b=a_mo)
-        if min(a_st, a_mo) < 90:
+        if min(a_st, a_mo) < 90 and not pcmono:
             say("low_agree")
 
         sil = silent_packet(ff, data, frames, m, sr, ch)
