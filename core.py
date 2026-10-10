@@ -819,7 +819,8 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
         s, m = s[:n], m[:n]
         feat = os.path.join(reports_dir(), os.path.basename(base) + "_features.npz")
         if save_features:   # small diagnostic file; lets the schedule be analysed without the video
-            np.savez_compressed(feat, s=s.astype(np.float16), m=m.astype(np.float16))
+            np.savez_compressed(feat, s=s.astype(np.float16), m=m.astype(np.float16),
+                                L=np.array([ln for _, ln in frames], dtype=np.uint16))
 
         def stamp_s(sec):
             sec = int(sec)
@@ -835,13 +836,20 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             est = estimate_period_mono(s)      # PC sound is mono as well (old/mono games)
             pcmono = est is not None
         if est is None:
-            np.savez_compressed(feat, s=s.astype(np.float16), m=m.astype(np.float16))
+            np.savez_compressed(feat, s=s.astype(np.float16), m=m.astype(np.float16),
+                                L=np.array([ln for _, ln in frames], dtype=np.uint16))
             raise SplitError(M["no_sched"].format(path=feat))
         P, Lm = est
         say("sched", p=P, lm=Lm, ls=P - Lm)
         lab, _ = segment_labels(s, m, P, Lm, progress=prog(0.45, 0.6), pcmono=pcmono,
                                **(dict(lam=2.0, jump=30.0) if pcmono else {}))
         fp = None if pcmono else mic_fingerprint(s, lab)
+        if fp is not None:
+            # When the PC sound is mostly mono, "mic-like" and "PC-like" levels of s overlap and the
+            # fingerprint would mislead; then the strict rhythm alone is more reliable.
+            pcr = [(b, e) for b, e, t in label_runs(lab) if t == 1 and e - b >= 40]
+            if pcr and float(np.mean([np.median(s[b:e]) > 1.0 for b, e in pcr])) < 0.6:
+                fp = None
         if fp is not None:
             lab, _ = segment_labels(s, m, P, Lm, fp=fp, progress=prog(0.6, 0.75))
         runs = label_runs(lab)
