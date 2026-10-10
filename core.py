@@ -45,7 +45,7 @@ MSG = {
                     "or structured differently. A diagnostic file was saved: {path}",
         "sched": "    schedule: period {p} packets (mono chunk {lm}, stereo chunk {ls})",
         "s4": "4/5 Splitting. Schedule shifts found: {n}",
-        "shift_at": "      around {t}",
+        "shift_at": "      around {t} (time in the finished video)",
         "agree": "    agreement with signal: stereo {a:.1f}%, mono {b:.1f}%",
         "low_agree": "    WARNING: low agreement - result may contain mixed-up pieces.",
         "filled": "    silence inserted to keep sync: PC {a:.1f} s, mic {b:.1f} s",
@@ -95,7 +95,7 @@ MSG = {
                     "или устроена иначе. Диагностический файл сохранён: {path}",
         "sched": "    расписание: период {p} пакетов (моно-кусок {lm}, стерео-кусок {ls})",
         "s4": "4/5 Разделяю. Сдвигов расписания найдено: {n}",
-        "shift_at": "      около {t}",
+        "shift_at": "      около {t} (время в готовом видео)",
         "agree": "    согласие с признаками: стерео {a:.1f}%, моно {b:.1f}%",
         "low_agree": "    ВНИМАНИЕ: согласие низкое - в дорожках могут быть перепутанные кусочки.",
         "filled": "    вставлено тишины для сохранения синхронизации: ПК {a:.1f} с, микрофон {b:.1f} с",
@@ -857,7 +857,7 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             return "%d:%02d:%02d" % (sec // 3600, sec % 3600 // 60, sec % 60)
 
         def stamp(k):
-            sec = int(k * FRAME / sr)
+            sec = int(k * FRAME / sr / 2)      # position in the finished tracks (the mixed stream is twice as long)
             return "%d:%02d:%02d" % (sec // 3600, sec % 3600 // 60, sec % 60)
 
         est = estimate_period(s)
