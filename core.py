@@ -612,7 +612,7 @@ def silent_packet(ffmpeg, data, frames, m, sr, ch):
     return d[o:o + l]
 
 
-FILL_MIN = 6
+FILL_MIN = 150      # packets (~3 s): shorter holes are closed, not filled with silence
 
 
 def build_tracks(data, frames, runs, n, P, Lm, sil):
