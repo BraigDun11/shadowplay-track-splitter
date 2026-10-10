@@ -14,6 +14,7 @@ import collections
 import errno
 import json
 import os
+import threading
 import time
 import shutil
 import re
@@ -136,6 +137,18 @@ MSG = {
 
 class SplitError(Exception):
     pass
+
+
+class Cancelled(Exception):
+    """The user pressed Stop."""
+
+
+CANCEL = threading.Event()
+
+
+def check_cancel():
+    if CANCEL.is_set():
+        raise Cancelled()
 
 
 def detect_lang():
@@ -377,7 +390,19 @@ def check_output(ffmpeg, path):
 
 
 def _run(cmd, **kw):
-    return subprocess.run(cmd, capture_output=True, creationflags=NO_WINDOW, **kw)
+    """Like subprocess.run(capture_output=True), but ffmpeg is stopped when the user presses Stop."""
+    check_cancel()
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=NO_WINDOW, **kw)
+    while True:
+        try:
+            out, err = p.communicate(timeout=0.25)
+            break
+        except subprocess.TimeoutExpired:
+            if CANCEL.is_set():
+                p.kill()
+                p.communicate()
+                raise Cancelled()
+    return subprocess.CompletedProcess(cmd, p.returncode, out, err)
 
 
 # ------------------------------------------------------------------- ADTS
@@ -688,6 +713,7 @@ def extract_tracks(video, ffmpeg=None, keep=0, save_others=True, save_kept=False
     M = MSG.get(lang, MSG["en"])
 
     def say(key, **kw):
+        check_cancel()
         log(M[key].format(**kw))
 
     ff = find_ffmpeg(ffmpeg)
@@ -768,12 +794,16 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
     M = MSG.get(lang, MSG["en"])
 
     def say(key, **kw):
+        check_cancel()
         log(M[key].format(**kw))
 
     def prog(a, b):
         # report progress as a fraction of the whole job
         if progress:
-            return lambda f: progress(a + (b - a) * f)
+            def _p(f):
+                check_cancel()
+                progress(a + (b - a) * f)
+            return _p
         return None
 
     ff = find_ffmpeg(ffmpeg)
@@ -783,7 +813,7 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
     fd, raw = tempfile.mkstemp(prefix="_raw_", suffix=".aac", dir=os.path.dirname(base))
     os.close(fd)
     outputs = {}
-    fa = fb = out = None
+    fa = fb = out = ma = mb = None
     ok = False
     try:
         say("s1")
@@ -964,6 +994,13 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
                 os.remove(out)
             except OSError:
                 pass
+        if not ok:
+            for f in (ma, mb):
+                if f and os.path.exists(f):
+                    try:
+                        os.remove(f)
+                    except OSError:
+                        pass
         for f in (raw, fa, fb):
             if f and os.path.exists(f):
                 try:

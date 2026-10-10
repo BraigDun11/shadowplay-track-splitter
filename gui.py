@@ -29,7 +29,7 @@ except Exception:  # pragma: no cover
     DND_FILES = TkinterDnD = None
     HAVE_DND = False
 
-APP_VERSION = "1.4.5"
+APP_VERSION = "1.4.6"
 
 # palette taken from the design mock-ups
 GREEN = "#55D900"
@@ -59,6 +59,9 @@ UI = {
         "mic": "Microphone",
         "start": "Start",
         "working": "Working...",
+        "stop": "Stop",
+        "stopping": "Stopping...",
+        "cancelled": "Stopped. Unfinished files were deleted.",
         "done": "Done!",
         "failed": "Something went wrong",
         "open": "Open folder",
@@ -109,6 +112,9 @@ UI = {
         "mic": "Микрофон",
         "start": "Начать",
         "working": "Работаю...",
+        "stop": "Остановить",
+        "stopping": "Останавливаю...",
+        "cancelled": "Остановлено. Недособранные файлы удалены.",
         "done": "Готово!",
         "failed": "Что-то пошло не так",
         "open": "Открыть папку",
@@ -416,8 +422,13 @@ class App:
         y0 = 460 if self.mode == 1 else 500
         self.start_y = y0
         if working:
-            self.rrect(210, y0, 570, y0 + 34, 17, "#2E5A10")
-            self.text(390, y0 + 17, t["working"], self.f_med, GRAY, "center")
+            stopping = core.CANCEL.is_set()
+            hi = self.hovered("stop") and not stopping
+            self.rrect(210, y0, 570, y0 + 34, 17, "#4A2020" if not hi else "#6A2A2A")
+            self.text(390, y0 + 17, t["stopping"] if stopping else t["stop"], self.f_med,
+                      GRAY if stopping else RED, "center")
+            if not stopping:
+                self.add_hit(210, y0, 570, y0 + 34, self.stop, "stop")
         else:
             hi = self.hovered("start")
             self.rrect(210, y0, 570, y0 + 34, 17, "#6BF000" if hi else GREEN)
@@ -773,9 +784,16 @@ class App:
         self.lines = []
         self.progress = 0.0
         self.status, self.status_color = t["working"], WHITE
+        core.CANCEL.clear()
         self.state = "working"
         self.render()
         threading.Thread(target=self.worker, args=(opts,), daemon=True).start()
+
+    def stop(self):
+        if self.state == "working":
+            core.CANCEL.set()
+            self.status, self.status_color = self.t["stopping"], GRAY
+            self.render()
 
     def worker(self, o):
         log = lambda s: self.q.put(("log", s))
@@ -789,6 +807,8 @@ class App:
                              log=log, progress=prog, lang=self.lang, save_audio_files=o["save"],
                              audio_which=o["which"], out_dir=o["out_dir"])
             self.q.put(("done", o["video"]))
+        except core.Cancelled:
+            self.q.put(("cancelled", o["video"]))
         except core.SplitError as e:
             self.q.put(("error", (o["video"], str(e))))
         except Exception as e:  # unexpected
@@ -831,6 +851,12 @@ class App:
                     self.progress = 1.0
                     self.status, self.status_color = self.t["done"], GREEN
                     self.save_report(val)
+                    dirty = True
+                elif kind == "cancelled":
+                    self.state = "ready"
+                    self.progress = 0.0
+                    self.status, self.status_color = self.t["cancelled"], GRAY
+                    core.CANCEL.clear()
                     dirty = True
                 elif kind == "error":
                     video, msg = val
