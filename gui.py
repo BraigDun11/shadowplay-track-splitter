@@ -29,7 +29,7 @@ except Exception:  # pragma: no cover
     DND_FILES = TkinterDnD = None
     HAVE_DND = False
 
-APP_VERSION = "1.4"
+APP_VERSION = "1.4.2"
 
 # palette taken from the design mock-ups
 GREEN = "#55D900"

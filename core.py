@@ -51,6 +51,9 @@ MSG = {
         "dur": "    track length: PC {a:.2f} min, mic {b:.2f} min",
         "vdur": "    video length (picture only): {v:.2f} min",
         "stretch": "    stretching video by x{s:.4f} to match audio",
+        "vgaps": "    The video itself has {n} hole(s) in its timeline (missing frames, {tot:.1f} min in total) - these are the places where it lags behind the sound:",
+        "vgap": "      at {t} (video time): {g:.1f} s of picture missing",
+        "vgaps0": "    The video timeline has no holes ({n} frames, {f:.1f} fps = {e:.1f} min). The missing picture time is not marked in the file, so its position cannot be found.",
         "hint_stretch": "    HINT: audio is {d:.1f} min longer than video. If sound lags behind the picture more and "
                         "more towards the end, enable 'Stretch video to match audio'.",
         "s5": "5/5 Building final video with two audio tracks...",
@@ -96,6 +99,9 @@ MSG = {
         "dur": "    длина дорожек: ПК {a:.2f} мин, микрофон {b:.2f} мин",
         "vdur": "    длина видео (только картинка): {v:.2f} мин",
         "stretch": "    растягиваю видео в {s:.4f} раза, чтобы совпало со звуком",
+        "vgaps": "    В самом видео есть дыры во временной шкале: {n} шт. (не хватает кадров, всего {tot:.1f} мин). Именно в этих местах картинка отстаёт от звука:",
+        "vgap": "      около {t} (время видео): не хватает {g:.1f} с картинки",
+        "vgaps0": "    Дыр во временной шкале видео нет ({n} кадров, {f:.1f} кадр/с = {e:.1f} мин). Недостающее время картинки в файле не отмечено, поэтому найти место нельзя.",
         "hint_stretch": "    ПОДСКАЗКА: звук длиннее видео на {d:.1f} мин. Если звук всё сильнее отстаёт от "
                         "картинки к концу, включите «Растянуть видео под длину звука».",
         "s5": "5/5 Собираю итоговое видео с двумя дорожками...",
@@ -309,6 +315,37 @@ def find_ffmpeg(extra=None):
     return None
 
 
+def video_gaps(ffmpeg, video):
+    """Holes in the video's own timeline (frames missing after a repair): returns
+    (frames, fps, [(time, hole_seconds), ...]) or None when ffprobe is not available."""
+    d = os.path.dirname(ffmpeg) if os.path.dirname(ffmpeg) else ""
+    cands = [os.path.join(d, "ffprobe.exe"), os.path.join(d, "ffprobe"), "ffprobe"]
+    for c in cands:
+        try:
+            r = _run([c, "-v", "error", "-select_streams", "v:0", "-show_entries", "packet=pts_time",
+                      "-of", "csv=p=0", video], text=True)
+        except OSError:
+            continue
+        if r.returncode != 0:
+            continue
+        ts = []
+        for line in (r.stdout or "").split():
+            try:
+                ts.append(float(line.strip(",")))
+            except ValueError:
+                pass
+        if len(ts) < 50:
+            return None
+        t = np.sort(np.array(ts))
+        dt = np.diff(t)
+        med = float(np.median(dt))
+        if med <= 0:
+            return None
+        big = np.where(dt > max(3 * med, 0.2))[0]
+        return len(t), 1.0 / med, [(float(t[i]), float(dt[i] - med)) for i in big]
+    return None
+
+
 def _run(cmd, **kw):
     return subprocess.run(cmd, capture_output=True, creationflags=NO_WINDOW, **kw)
 
@@ -378,6 +415,8 @@ def estimate_period(s):
     return collections.Counter(sp.tolist()).most_common(1)[0][0], lm
 
 
+MIC_NOISE_M = 3.0
+PC_LOUD = 1.0
 PCM_PC = 0.7
 PCM_MIC = 0.4
 
@@ -430,7 +469,8 @@ def segment_labels(s, m, P, Lm, lam=0.5, jump=10.0, lmin=8, progress=None, fp=No
         # passage has a visibly lower value (about 0.3). Weak vote, only matters when nothing else does.
         # mic-like votes only for packets with a real signal: digital silence (muted mic / silent PC)
         # has a similar s and says nothing about whose chunk it is
-        u = np.where((s >= fp - 0.03) & (m > 20), 1.0, np.where(s <= fp - 0.12, -1.0, 0.0))
+        u = np.where(((s >= fp - 0.03) & (m > 20)) | ((s >= fp - 0.01) & (m >= MIC_NOISE_M)), 1.0,
+                     np.where(s <= fp - 0.12, -np.where(m > 100, PC_LOUD, 1.0), 0.0))
         e = e - np.where(low, fpw * u, 0.0)
     cs = np.r_[0.0, np.cumsum(e)]
     lmax = 3 * max(nom.values()) + 10
@@ -751,6 +791,10 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
         if save_features:   # small diagnostic file; lets the schedule be analysed without the video
             np.savez_compressed(feat, s=s.astype(np.float16), m=m.astype(np.float16))
 
+        def stamp_s(sec):
+            sec = int(sec)
+            return "%d:%02d:%02d" % (sec // 3600, sec % 3600 // 60, sec % 60)
+
         def stamp(k):
             sec = int(k * FRAME / sr)
             return "%d:%02d:%02d" % (sec // 3600, sec % 3600 // 60, sec % 60)
@@ -815,6 +859,16 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             say("stretch", s=scale)
         elif vdur and max(dur_a, dur_b) - vdur > 0.02 * vdur:
             say("hint_stretch", d=(max(dur_a, dur_b) - vdur) / 60)
+
+        vg = video_gaps(ff, video)
+        if vg:
+            nfr, fps, gaps = vg
+            if gaps:
+                say("vgaps", n=len(gaps), tot=sum(g for _, g in gaps) / 60.0)
+                for tt, g in sorted(gaps, key=lambda x: -x[1])[:15]:
+                    say("vgap", t=stamp_s(tt), g=g)
+            else:
+                say("vgaps0", n=nfr, f=fps, e=nfr / fps / 60.0)
 
         say("s5")
         out = "%s_fixed%s.mp4" % (base, suf)

@@ -25,6 +25,8 @@ jobs:
         run: python tests/test_mono_stretch.py
       - name: Chunk-length jitter regression test
         run: python tests/test_jitter.py
+      - name: Video hole test
+        run: python tests/test_vgaps.py
       - name: PC mono test
         run: python tests/test_pcmono.py
       - name: GUI smoke test
