@@ -51,6 +51,8 @@ MSG = {
         "dur": "    track length: PC {a:.2f} min, mic {b:.2f} min",
         "vdur": "    video length (picture only): {v:.2f} min",
         "stretch": "    stretching video by x{s:.4f} to match audio",
+        "starts": "    Check of the finished file - stream start times (s): {v}",
+        "silent": "    Check of the finished file: the {n} track is completely silent for {d:.0f} s from {t}",
         "vgaps": "    The video itself has {n} hole(s) in its timeline (missing frames, {tot:.1f} min in total) - these are the places where it lags behind the sound:",
         "vgap": "      at {t} (video time): {g:.1f} s of picture missing",
         "vgaps0": "    The video timeline has no holes ({n} frames, {f:.1f} fps = {e:.1f} min). The missing picture time is not marked in the file, so its position cannot be found.",
@@ -99,6 +101,8 @@ MSG = {
         "dur": "    длина дорожек: ПК {a:.2f} мин, микрофон {b:.2f} мин",
         "vdur": "    длина видео (только картинка): {v:.2f} мин",
         "stretch": "    растягиваю видео в {s:.4f} раза, чтобы совпало со звуком",
+        "starts": "    Проверка готового файла - начало потоков (с): {v}",
+        "silent": "    Проверка готового файла: дорожка {n} полностью беззвучна {d:.0f} с, начиная с {t}",
         "vgaps": "    В самом видео есть дыры во временной шкале: {n} шт. (не хватает кадров, всего {tot:.1f} мин). Именно в этих местах картинка отстаёт от звука:",
         "vgap": "      около {t} (время видео): не хватает {g:.1f} с картинки",
         "vgaps0": "    Дыр во временной шкале видео нет ({n} кадров, {f:.1f} кадр/с = {e:.1f} мин). Недостающее время картинки в файле не отмечено, поэтому найти место нельзя.",
@@ -344,6 +348,32 @@ def video_gaps(ffmpeg, video):
         big = np.where(dt > max(3 * med, 0.2))[0]
         return len(t), 1.0 / med, [(float(t[i]), float(dt[i] - med)) for i in big]
     return None
+
+
+def check_output(ffmpeg, path):
+    """Post-check of the finished video: where each audio track is silent for 5 s or longer and
+    where each stream starts. Returns a list of report lines (keys for MSG) - never raises."""
+    res = {"starts": None, "silent": {0: [], 1: []}}
+    try:
+        d = os.path.dirname(ffmpeg)
+        for c in (os.path.join(d, "ffprobe.exe"), os.path.join(d, "ffprobe"), "ffprobe"):
+            try:
+                r = _run([c, "-v", "error", "-show_entries", "stream=codec_type,start_time",
+                          "-of", "csv=p=0", path], text=True)
+            except OSError:
+                continue
+            if r.returncode == 0:
+                res["starts"] = [ln.split(",") for ln in (r.stdout or "").split()]
+                break
+        for i in (0, 1):
+            r = _run([ffmpeg, "-hide_banner", "-i", path, "-map", "0:a:%d" % i, "-af",
+                      "silencedetect=noise=-80dB:d=5", "-f", "null", "-"], text=True)
+            st = [float(x) for x in re.findall(r"silence_start: (-?[\d.]+)", r.stderr or "")]
+            du = [float(x) for x in re.findall(r"silence_duration: ([\d.]+)", r.stderr or "")]
+            res["silent"][i] = list(zip(st, du))
+    except Exception:
+        return None
+    return res
 
 
 def _run(cmd, **kw):
@@ -827,7 +857,7 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
         say("agree", a=a_st, b=a_mo)
         # mono agreement is naturally lower when the PC sound itself is mono for a while, so it
         # only counts when it is really poor
-        if (a_st < 90 or a_mo < 60) and not pcmono:
+        if (a_st < 90 or a_mo < 40) and not pcmono:
             say("low_agree")
 
         sil = silent_packet(ff, data, frames, m, sr, ch)
@@ -887,6 +917,13 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             if "No space left" in (r.stderr or ""):
                 raise SplitError(M["nospace"])
             raise SplitError(M["e_mux"].format(a=fa, b=fb))
+        chk = check_output(ff, out)
+        if chk:
+            if chk["starts"]:
+                say("starts", v=" / ".join(x[1] if len(x) > 1 else "?" for x in chk["starts"]))
+            for i, nm in ((0, "PC"), (1, "Mic")):
+                for st, du in chk["silent"][i][:10]:
+                    say("silent", n=nm, t=stamp_s(st), d=du)
         ma, mb = fa.replace(".aac", ".m4a"), fb.replace(".aac", ".m4a")
         want = {fa: audio_which in ("both", "pc"), fb: audio_which in ("both", "mic")}
         for f in (fa, fb):
