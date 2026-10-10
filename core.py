@@ -825,7 +825,9 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
         mono_sel = ((s >= 0.41) & (s < 0.5) & (m >= 30)) if pcmono else ((s < 0.5) & (m >= 30))
         a_mo = 100 * float((lab[mono_sel] == 0).mean()) if mono_sel.any() else 100.0
         say("agree", a=a_st, b=a_mo)
-        if min(a_st, a_mo) < 90 and not pcmono:
+        # mono agreement is naturally lower when the PC sound itself is mono for a while, so it
+        # only counts when it is really poor
+        if (a_st < 90 or a_mo < 60) and not pcmono:
             say("low_agree")
 
         sil = silent_packet(ff, data, frames, m, sr, ch)
