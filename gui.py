@@ -22,6 +22,7 @@ from tkinter import filedialog, messagebox
 from tkinter import font as tkfont
 
 import core
+import updater
 
 try:  # drag & drop of files into the window (optional)
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -30,7 +31,7 @@ except Exception:  # pragma: no cover
     DND_FILES = TkinterDnD = None
     HAVE_DND = False
 
-APP_VERSION = "1.4.9"
+APP_VERSION = "1.4.10"
 
 # Where the "support the author" button leads. Leave empty to hide the button until a page exists.
 DONATE_URL = ""
@@ -87,6 +88,19 @@ UI = {
         "hint_unreadable": "Could not read this file. If it is the original damaged recording, repair it first.",
         "empty_track": " (empty)",
         "settings": "Settings",
+        "upd_title": "Update",
+        "upd_current": "Version v{v}",
+        "upd_latest": "You have the latest version",
+        "upd_available": "Available: v{v}",
+        "upd_btn": "Update",
+        "upd_check": "Check",
+        "upd_checking": "Checking...",
+        "upd_down": "Downloading... {p}%",
+        "upd_fail": "Could not check for updates",
+        "upd_fail_dl": "The update failed. The download page will open.",
+        "upd_manual": "Download page",
+        "upd_ask": "Install v{v} now? The program will restart.",
+        "upd_busy": "Wait until the current job finishes.",
         "dev_mode": "Developer mode",
         "dev_hint": "After a run, show the places worth listening to",
         "listen_title": "Places worth listening to",
@@ -148,6 +162,19 @@ UI = {
         "hint_unreadable": "Не получилось прочитать файл. Если это исходная повреждённая запись, сначала восстановите её.",
         "empty_track": " (пустая)",
         "settings": "Настройки",
+        "upd_title": "Обновление",
+        "upd_current": "Версия v{v}",
+        "upd_latest": "У вас последняя версия",
+        "upd_available": "Доступна: v{v}",
+        "upd_btn": "Обновить",
+        "upd_check": "Проверить",
+        "upd_checking": "Проверяю...",
+        "upd_down": "Скачиваю... {p}%",
+        "upd_fail": "Не удалось проверить обновления",
+        "upd_fail_dl": "Обновление не удалось. Откроется страница загрузки.",
+        "upd_manual": "Страница загрузки",
+        "upd_ask": "Установить v{v} сейчас? Программа перезапустится.",
+        "upd_busy": "Дождитесь окончания текущей работы.",
         "dev_mode": "Режим разработчика",
         "dev_hint": "После обработки показывать места, которые стоит прослушать",
         "listen_title": "Что стоит прослушать",
@@ -187,6 +214,10 @@ class App:
         self.t = UI[self.lang]
         self.q = queue.Queue()
         self.cfg = core.load_settings()
+        self.upd = None                     # available update (dict) or None
+        self.upd_state = "idle"            # idle / checking / down / fail
+        self.upd_pct = 0
+        updater.cleanup_old()
         self.ffmpeg = core.find_ffmpeg(self.cfg.get("ffmpeg")) or core.find_ffmpeg()
         self.settings_open = False
 
@@ -236,6 +267,7 @@ class App:
         self.render()
         self.root.after(150, self.paint_title_bar)
         self.root.after(100, self.poll)
+        self.root.after(1500, self.check_update)
         if preset:
             self.set_video(preset)
 
@@ -495,6 +527,9 @@ class App:
     def render_gear(self, working):
         hi = self.hovered("gear")
         self.gear(738, 30, WHITE if hi else GRAY)
+        if self.upd:                                   # an update is available
+            S = self.S
+            self.cv.create_oval(S(744), S(14), S(756), S(26), fill=GREEN, outline=BG, width=max(1, S(2)))
         if not working:
             self.add_hit(716, 8, 760, 52, self.open_settings, "gear")
 
@@ -510,7 +545,51 @@ class App:
     def toggle_dev(self):
         self.cfg["dev"] = not self.cfg.get("dev")
         self.save_cfg()
+        self.upd = None
+        self.check_update()
         self.render()
+
+    # ------------------------------------------------------------ updates
+    def check_update(self):
+        if self.upd_state in ("checking", "down"):
+            return
+        self.upd_state = "checking"
+        dev = bool(self.cfg.get("dev"))
+
+        def job():
+            res, err = updater.check(APP_VERSION, dev=dev)
+            self.q.put(("upd_found", (res, err)))
+
+        threading.Thread(target=job, daemon=True).start()
+        if self.settings_open:
+            self.render()
+
+    def install_update(self):
+        if not self.upd or self.upd_state == "down":
+            return
+        if self.state == "working":
+            messagebox.showinfo(self.t["title"], self.t["upd_busy"])
+            return
+        v = ".".join(map(str, self.upd["version"]))
+        if not updater.can_self_update():                 # running from source: just open the page
+            webbrowser.open(self.upd.get("page") or updater.PAGE)
+            return
+        if not messagebox.askyesno(self.t["title"], self.t["upd_ask"].format(v=v)):
+            return
+        info = self.upd
+        self.upd_state, self.upd_pct = "down", 0.0
+        self.render()
+        new = sys.executable + ".new"
+
+        def job():
+            try:
+                updater.download(info["url"], new, progress=lambda f: self.q.put(("upd_pct", f)),
+                                 size=info.get("size") or 0, sha256=info.get("sha256"))
+                self.q.put(("upd_ready", new))
+            except Exception as ex:
+                self.q.put(("upd_err", str(ex)))
+
+        threading.Thread(target=job, daemon=True).start()
 
     def open_donate(self):
         if DONATE_URL:
@@ -605,30 +684,49 @@ class App:
             self.add_hit(134, 204, 134 + int(self.f_tiny.measure(t["reset_default"]) / self.k), 224,
                          self.reset_out_dir, "reset")
         # ffmpeg
-        self.rrect(110, 262, 670, 372, 24, PANEL)
-        self.text(134, 288, t["ffmpeg_title"], self.f_small, GRAY, "w")
+        self.rrect(110, 250, 670, 350, 24, PANEL)
+        self.text(134, 274, t["ffmpeg_title"], self.f_small, GRAY, "w")
         if self.ffmpeg:
-            self.text(134, 320, t["ffmpeg_installed"], self.f_med, GREEN, "w")
+            self.text(134, 304, t["ffmpeg_installed"], self.f_med, GREEN, "w")
             shown = self.ffmpeg if os.path.isabs(self.ffmpeg) else (shutil.which(self.ffmpeg) or self.ffmpeg)
-            self.text(134, 348, self.fit(shown, self.f_tiny, 400), self.f_tiny, GRAY, "w")
+            self.text(134, 330, self.fit(shown, self.f_tiny, 400), self.f_tiny, GRAY, "w")
         else:
-            self.text(134, 320, self.fit(t["ffmpeg_missing"], self.f_med, 400), self.f_med, RED, "w")
-        self.pill(550, 306, 650, 338, t["choose"], self.choose_ffmpeg, "ffm", fill=BG, font=self.f_small)
+            self.text(134, 304, self.fit(t["ffmpeg_missing"], self.f_med, 400), self.f_med, RED, "w")
+        self.pill(550, 290, 650, 322, t["choose"], self.choose_ffmpeg, "ffm", fill=BG, font=self.f_small)
+        # update
+        self.rrect(110, 364, 670, 446, 24, PANEL)
+        self.text(134, 388, t["upd_title"], self.f_small, GRAY, "w")
+        if self.upd_state == "down":
+            line, col = t["upd_down"].format(p=int(self.upd_pct * 100)), WHITE
+        elif self.upd_state == "checking":
+            line, col = t["upd_checking"], GRAY
+        elif self.upd:
+            line, col = t["upd_available"].format(v=".".join(map(str, self.upd["version"]))), GREEN
+        elif self.upd_state == "fail":
+            line, col = t["upd_fail"], RED
+        else:
+            line, col = t["upd_latest"], WHITE
+        self.text(134, 418, self.fit(line, self.f_med, 400), self.f_med, col, "w")
+        if self.upd_state not in ("down", "checking"):
+            if self.upd:
+                self.pill(550, 392, 650, 424, t["upd_btn"], self.install_update, "upd", fill=GREEN, font=self.f_small)
+            else:
+                self.pill(550, 392, 650, 424, t["upd_check"], self.check_update, "upd", fill=BG, font=self.f_small)
         # developer mode
-        self.rrect(110, 388, 670, 470, 24, PANEL)
-        self.checkbox(134, 416, t["dev_mode"], bool(self.cfg.get("dev")), self.toggle_dev, "dev")
-        self.text(174, 446, self.fit(t["dev_hint"], self.f_tiny, 470), self.f_tiny, GRAY, "w")
+        self.rrect(110, 460, 670, 536, 24, PANEL)
+        self.checkbox(134, 486, t["dev_mode"], bool(self.cfg.get("dev")), self.toggle_dev, "dev")
+        self.text(174, 516, self.fit(t["dev_hint"], self.f_tiny, 470), self.f_tiny, GRAY, "w")
         # support
         if DONATE_URL:
-            self.rrect(110, 488, 670, 578, 24, PANEL)
-            self.text(134, 512, t["support_title"], self.f_small, GRAY, "w")
-            self.text(134, 546, self.fit(t["support_hint"], self.f_tiny, 400), self.f_tiny, WHITE, "w")
-            self.pill(550, 520, 650, 552, t["support_btn"], self.open_donate, "donate", fill=BG, font=self.f_small)
+            self.rrect(110, 550, 670, 626, 24, PANEL)
+            self.text(134, 574, self.fit(t["support_title"], self.f_small, 400), self.f_small, GRAY, "w")
+            self.text(134, 604, self.fit(t["support_hint"], self.f_tiny, 400), self.f_tiny, WHITE, "w")
+            self.pill(550, 578, 650, 610, t["support_btn"], self.open_donate, "donate", fill=BG, font=self.f_small)
         # close
         hi = self.hovered("close")
-        self.rrect(260, 600, 520, 634, 17, "#6BF000" if hi else GREEN)
-        self.text(390, 617, t["close"], self.f_med, WHITE, "center")
-        self.add_hit(260, 600, 520, 634, self.close_settings, "close")
+        self.rrect(260, 642, 520, 676, 17, "#6BF000" if hi else GREEN)
+        self.text(390, 659, t["close"], self.f_med, WHITE, "center")
+        self.add_hit(260, 642, 520, 676, self.close_settings, "close")
         if self.menu:
             self.render_menu()
 
@@ -924,6 +1022,30 @@ class App:
                     self.apply_probe(*val)
                 elif kind == "thumb":
                     self.apply_thumb(*val)
+                elif kind == "upd_found":
+                    res, err = val
+                    self.upd = res
+                    self.upd_state = "fail" if err and not res else "idle"
+                    dirty = True
+                elif kind == "upd_pct":
+                    self.upd_pct = float(val)
+                    dirty = True
+                elif kind == "upd_ready":
+                    try:
+                        exe = updater.apply_update(val)
+                        updater.start(exe)
+                        self.root.destroy()
+                        return
+                    except OSError:
+                        self.upd_state = "fail"
+                        messagebox.showerror(self.t["error"], self.t["upd_fail_dl"])
+                        webbrowser.open((self.upd or {}).get("page") or updater.PAGE)
+                        dirty = True
+                elif kind == "upd_err":
+                    self.upd_state = "fail"
+                    messagebox.showerror(self.t["error"], self.t["upd_fail_dl"] + "\n\n" + str(val))
+                    webbrowser.open((self.upd or {}).get("page") or updater.PAGE)
+                    dirty = True
                 elif kind == "listen":
                     self.listen_events = val
                 elif kind == "done":
