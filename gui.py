@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import webbrowser
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from tkinter import font as tkfont
@@ -29,7 +30,10 @@ except Exception:  # pragma: no cover
     DND_FILES = TkinterDnD = None
     HAVE_DND = False
 
-APP_VERSION = "1.4.8"
+APP_VERSION = "1.4.9"
+
+# Where the "support the author" button leads. Leave empty to hide the button until a page exists.
+DONATE_URL = ""
 
 # palette taken from the design mock-ups
 GREEN = "#55D900"
@@ -83,6 +87,14 @@ UI = {
         "hint_unreadable": "Could not read this file. If it is the original damaged recording, repair it first.",
         "empty_track": " (empty)",
         "settings": "Settings",
+        "dev_mode": "Developer mode",
+        "dev_hint": "After a run, show the places worth listening to",
+        "listen_title": "Places worth listening to",
+        "listen_none": "Nothing suspicious was found.",
+        "copy": "Copy",
+        "support_title": "Support the author",
+        "support_hint": "The program is free. You can buy the author a coffee.",
+        "support_btn": "Support",
         "out_folder": "Folder for repaired videos",
         "change": "Change",
         "reset_default": "Back to default folder",
@@ -136,6 +148,14 @@ UI = {
         "hint_unreadable": "Не получилось прочитать файл. Если это исходная повреждённая запись, сначала восстановите её.",
         "empty_track": " (пустая)",
         "settings": "Настройки",
+        "dev_mode": "Режим разработчика",
+        "dev_hint": "После обработки показывать места, которые стоит прослушать",
+        "listen_title": "Что стоит прослушать",
+        "listen_none": "Ничего подозрительного не найдено.",
+        "copy": "Копировать",
+        "support_title": "Поддержать автора",
+        "support_hint": "Программа бесплатная. Можно угостить автора кофе.",
+        "support_btn": "Поддержать",
         "out_folder": "Папка для восстановленных видео",
         "change": "Изменить",
         "reset_default": "Вернуть папку по умолчанию",
@@ -487,6 +507,53 @@ class App:
         self.settings_open = False
         self.render()
 
+    def toggle_dev(self):
+        self.cfg["dev"] = not self.cfg.get("dev")
+        self.save_cfg()
+        self.render()
+
+    def open_donate(self):
+        if DONATE_URL:
+            webbrowser.open(DONATE_URL)
+
+    def show_listen(self, events):
+        """A small window with the places worth listening to (developer mode)."""
+        t = self.t
+        win = tk.Toplevel(self.root)
+        win.title(t["listen_title"])
+        win.configure(bg=BG)
+        win.transient(self.root)
+        k = self.k
+        w, h = int(430 * k), int(520 * k)
+        x = self.root.winfo_x() + int(60 * k)
+        y = self.root.winfo_y() + int(60 * k)
+        win.geometry("%dx%d+%d+%d" % (w, h, x, y))
+        tk.Label(win, text=t["listen_title"], bg=BG, fg=WHITE, font=self.f_med).pack(pady=(int(12 * k), int(6 * k)))
+        frame = tk.Frame(win, bg=BG)
+        frame.pack(fill="both", expand=True, padx=int(12 * k))
+        txt = tk.Text(frame, bg=PANEL, fg=WHITE, relief="flat", wrap="word", font=self.f_tiny,
+                      padx=int(10 * k), pady=int(8 * k), borderwidth=0, highlightthickness=0)
+        sb = tk.Scrollbar(frame, command=txt.yview)
+        txt.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        txt.pack(side="left", fill="both", expand=True)
+        lines = ["%d:%04.1f   %s" % (int(sec) // 60, sec - 60 * (int(sec) // 60), msg) for sec, msg in events]
+        body = "\n\n".join(lines) if lines else t["listen_none"]
+        txt.insert("1.0", body)
+        txt.configure(state="disabled")
+
+        def copy():
+            self.root.clipboard_clear()
+            self.root.clipboard_append(body)
+
+        bar = tk.Frame(win, bg=BG)
+        bar.pack(pady=int(10 * k))
+        tk.Button(bar, text=t["copy"], command=copy, bg=PANEL, fg=WHITE, relief="flat", font=self.f_small,
+                  activebackground=PANEL_HI, activeforeground=WHITE, padx=int(14 * k)).pack(side="left", padx=6)
+        tk.Button(bar, text=t["close"], command=win.destroy, bg=GREEN, fg=WHITE, relief="flat",
+                  font=self.f_small, activebackground="#6BF000", activeforeground=WHITE,
+                  padx=int(14 * k)).pack(side="left", padx=6)
+
     def out_dir_cfg(self):
         return self.cfg.get("out_dir") or core.default_out_dir()
 
@@ -547,6 +614,16 @@ class App:
         else:
             self.text(134, 320, self.fit(t["ffmpeg_missing"], self.f_med, 400), self.f_med, RED, "w")
         self.pill(550, 306, 650, 338, t["choose"], self.choose_ffmpeg, "ffm", fill=BG, font=self.f_small)
+        # developer mode
+        self.rrect(110, 388, 670, 470, 24, PANEL)
+        self.checkbox(134, 416, t["dev_mode"], bool(self.cfg.get("dev")), self.toggle_dev, "dev")
+        self.text(174, 446, self.fit(t["dev_hint"], self.f_tiny, 470), self.f_tiny, GRAY, "w")
+        # support
+        if DONATE_URL:
+            self.rrect(110, 488, 670, 578, 24, PANEL)
+            self.text(134, 512, t["support_title"], self.f_small, GRAY, "w")
+            self.text(134, 546, self.fit(t["support_hint"], self.f_tiny, 400), self.f_tiny, WHITE, "w")
+            self.pill(550, 520, 650, 552, t["support_btn"], self.open_donate, "donate", fill=BG, font=self.f_small)
         # close
         hi = self.hovered("close")
         self.rrect(260, 600, 520, 634, 17, "#6BF000" if hi else GREEN)
@@ -803,9 +880,10 @@ class App:
                 core.extract_tracks(o["video"], ffmpeg=o["ffmpeg"], keep=o["keep"], save_tracks=o["save_tracks"],
                                     log=log, progress=prog, lang=self.lang, out_dir=o["out_dir"])
             else:
-                core.process(o["video"], ffmpeg=o["ffmpeg"], swap=o["swap"], match_video=o["stretch"],
-                             log=log, progress=prog, lang=self.lang, save_audio_files=o["save"],
-                             audio_which=o["which"], out_dir=o["out_dir"])
+                res = core.process(o["video"], ffmpeg=o["ffmpeg"], swap=o["swap"], match_video=o["stretch"],
+                                   log=log, progress=prog, lang=self.lang, save_audio_files=o["save"],
+                                   audio_which=o["which"], out_dir=o["out_dir"])
+                self.q.put(("listen", (res or {}).get("listen") or []))
             self.q.put(("done", o["video"]))
         except core.Cancelled:
             self.q.put(("cancelled", o["video"]))
@@ -846,12 +924,17 @@ class App:
                     self.apply_probe(*val)
                 elif kind == "thumb":
                     self.apply_thumb(*val)
+                elif kind == "listen":
+                    self.listen_events = val
                 elif kind == "done":
                     self.state = "done"
                     self.progress = 1.0
                     self.status, self.status_color = self.t["done"], GREEN
                     self.save_report(val)
                     dirty = True
+                    if self.cfg.get("dev") and getattr(self, "listen_events", None) is not None and self.mode == 0:
+                        self.root.after(200, lambda ev=self.listen_events: self.show_listen(ev))
+                        self.listen_events = None
                 elif kind == "cancelled":
                     self.state = "ready"
                     self.progress = 0.0

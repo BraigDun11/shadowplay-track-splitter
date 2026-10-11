@@ -53,6 +53,13 @@ MSG = {
         "vdur": "    video length (picture only): {v:.2f} min",
         "stretch": "    stretching video by x{s:.4f} to match audio",
         "starts": "    Check of the finished file - stream start times (s): {v}",
+        "ev_head": "    Places worth listening to ({n}; time in the finished video):",
+        "ev_shift": "the chunk schedule shifted (a chunk of {n} packets instead of {nom}): a click, a cut or swapped bits are possible",
+        "ev_hole": "the {n} track is missing about {d:.1f} s of sound in the source; the hole was closed, so a jump or cut speech is possible",
+        "ev_fill": "the {n} track lost {d:.1f} s of sound in the source; silence was inserted to keep sync",
+        "ev_leak": "stereo sound (PC) inside a microphone chunk: possible leak of the PC sound into the mic track",
+        "ev_silent": "the {n} track is completely silent for {d:.0f} s (muted or lost sound)",
+        "ev_vgap": "the video has a hole here: {g:.1f} s of picture missing",
         "silent": "    Check of the finished file: the {n} track is completely silent for {d:.0f} s from {t}",
         "vgaps": "    The video itself has {n} hole(s) in its timeline (missing frames, {tot:.1f} min in total) - these are the places where it lags behind the sound:",
         "vgap": "      at {t} (video time): {g:.1f} s of picture missing",
@@ -103,6 +110,13 @@ MSG = {
         "vdur": "    длина видео (только картинка): {v:.2f} мин",
         "stretch": "    растягиваю видео в {s:.4f} раза, чтобы совпало со звуком",
         "starts": "    Проверка готового файла - начало потоков (с): {v}",
+        "ev_head": "    Места, которые стоит прослушать ({n}; время в готовом видео):",
+        "ev_shift": "расписание кусков сдвинулось (кусок из {n} пакетов вместо {nom}): возможны щелчок, обрыв или перепутанные кусочки",
+        "ev_hole": "в дорожке {n} в исходнике не хватает примерно {d:.1f} с звука; дыра закрыта, возможны скачок или обрыв речи",
+        "ev_fill": "в дорожке {n} потеряно {d:.1f} с звука в исходнике; вставлена тишина, чтобы не нарушить синхронизацию",
+        "ev_leak": "стерео-звук (ПК) внутри куска микрофона: возможна утечка звука ПК в дорожку микрофона",
+        "ev_silent": "дорожка {n} полностью беззвучна {d:.0f} с (выключен микрофон или потерян звук)",
+        "ev_vgap": "в видео здесь дыра: не хватает {g:.1f} с картинки",
         "silent": "    Проверка готового файла: дорожка {n} полностью беззвучна {d:.0f} с, начиная с {t}",
         "vgaps": "    В самом видео есть дыры во временной шкале: {n} шт. (не хватает кадров, всего {tot:.1f} мин). Именно в этих местах картинка отстаёт от звука:",
         "vgap": "      около {t} (время видео): не хватает {g:.1f} с картинки",
@@ -586,6 +600,22 @@ def mic_fingerprint(s, lab):
     return float(np.median(b))
 
 
+def suspect_chunks(s, runs):
+    """Chunks whose content does not look like the track they were given to (only judged when the PC
+    sound is real stereo most of the time; otherwise mono and stereo cannot be told apart).
+    Returns [(packet, 'leak')]: stereo sound inside a microphone chunk (PC sound leaking into the mic)."""
+    pcr = [(b, e) for b, e, t in runs if t == 1 and e - b >= 40]
+    if not pcr or float(np.mean([np.median(s[b:e]) > 1.0 for b, e in pcr])) < 0.6:
+        return []
+    out = []
+    for b, e, t in runs:
+        if e - b < 10:
+            continue
+        if t == 0 and int(np.sum(s[b:e] > 1.0)) >= 6:
+            out.append((b, "leak"))
+    return out
+
+
 def label_runs(lab):
     d = np.diff(np.r_[2, lab, 2])
     b = np.where(d != 0)[0]
@@ -612,10 +642,11 @@ def silent_packet(ffmpeg, data, frames, m, sr, ch):
     return d[o:o + l]
 
 
+HOLE_NOTE = 20         # packets: a deviation this big is worth mentioning in the report
 FILL_MIN = 150      # packets (~3 s): shorter holes are closed, not filled with silence
 
 
-def build_tracks(data, frames, runs, n, P, Lm, sil):
+def build_tracks(data, frames, runs, n, P, Lm, sil, events=None):
     """Cut the interleaved packet stream into two tracks (bit-exact).
 
     Both tracks cover the same time, so after every full PC+mic pair they must be equally long.
@@ -626,6 +657,7 @@ def build_tracks(data, frames, runs, n, P, Lm, sil):
     true_len = {1: nom[1] - 1, 0: nom[0] + 1}   # packets in a real chunk (the decoder smears 1 packet)
     n_s = n_m = 0                                # lengths in packets, silence included
     filled = {1: 0, 0: 0}
+    prev_x = 0
     for k, (b, e, t) in enumerate(runs):
         # The decoder smears each switch over 1 packet: the stereo run looks 1 packet
         # longer and the mono run 1 packet shorter. Restore the true packet borders.
@@ -649,6 +681,10 @@ def build_tracks(data, frames, runs, n, P, Lm, sil):
             x = (n_s - n_m) - expect
             # small deviations are ordinary chunk-length jitter: filling them would put a click into the
             # audio every few seconds, so only a real loss (a few packets or more) is filled
+            if events is not None and abs(x - prev_x) >= HOLE_NOTE:     # a new hole (not one already noted)
+                dx = x - prev_x
+                events.append((e, "mic" if dx > 0 else "pc", abs(dx), abs(x) >= FILL_MIN))
+            prev_x = 0 if abs(x) >= FILL_MIN else x
             if x >= FILL_MIN:                     # the microphone is behind
                 mono += sil * x
                 n_m += x
@@ -852,6 +888,9 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             np.savez_compressed(feat, s=s.astype(np.float16), m=m.astype(np.float16),
                                 L=np.array([ln for _, ln in frames], dtype=np.uint16))
 
+        def stamp_m(sec):
+            return "%d:%04.1f" % (int(sec) // 60, sec - 60 * (int(sec) // 60))
+
         def stamp_s(sec):
             sec = int(sec)
             return "%d:%02d:%02d" % (sec // 3600, sec % 3600 // 60, sec % 60)
@@ -899,7 +938,8 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             say("low_agree")
 
         sil = silent_packet(ff, data, frames, m, sr, ch)
-        stereo, mono, filled = build_tracks(data, frames, runs, n, P, Lm, sil)
+        hole_ev = []
+        stereo, mono, filled = build_tracks(data, frames, runs, n, P, Lm, sil, events=hole_ev)
         say("filled", a=filled[1] * FRAME / sr, b=filled[0] * FRAME / sr)
         if swap:
             stereo, mono = mono, stereo
@@ -940,6 +980,20 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             else:
                 say("vgaps0", n=nfr, f=fps, e=nfr / fps / 60.0)
 
+        listen = []                                   # (seconds in the finished video, text)
+        for b, e, t in runs[1:-1]:
+            if abs((e - b) - nomlen[t]) > 3:
+                listen.append((b * FRAME / sr / 2, M["ev_shift"].format(n=e - b, nom=nomlen[t])))
+        for e_, who, x, was_filled in hole_ev:
+            nm = "PC" if who == "pc" else "Mic"
+            key = "ev_fill" if was_filled else "ev_hole"
+            listen.append((e_ * FRAME / sr / 2, M[key].format(n=nm, d=x * FRAME / sr)))
+        for b_, kind in suspect_chunks(s, runs)[:40]:
+            listen.append((b_ * FRAME / sr / 2, M["ev_leak"]))
+        if vg and vg[2]:
+            for tt, g in vg[2][:30]:
+                listen.append((tt, M["ev_vgap"].format(g=g)))
+
         say("s5")
         out = "%s_fixed%s.mp4" % (base, suf)
         cmd = [ff, "-y", "-v", "error"]
@@ -962,6 +1016,8 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             for i, nm in ((0, "PC"), (1, "Mic")):
                 for st, du in chk["silent"][i][:10]:
                     say("silent", n=nm, t=stamp_s(st), d=du)
+                for st, du in chk["silent"][i][:30]:
+                    listen.append((st, M["ev_silent"].format(n=nm, d=du)))
         ma, mb = fa.replace(".aac", ".m4a"), fb.replace(".aac", ".m4a")
         want = {fa: audio_which in ("both", "pc"), fb: audio_which in ("both", "mic")}
         for f in (fa, fb):
@@ -980,7 +1036,11 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             if not want[fb]:
                 mb = None
             say("done3", files=", ".join(x for x in (ma, mb) if x))
-        outputs = {"video": out, "pc": ma, "mic": mb, "audio_min": max(dur_a, dur_b) / 60,
+        listen.sort()
+        say("ev_head", n=len(listen))
+        for sec_, txt in listen[:150]:
+            log("      %s - %s" % (stamp_m(sec_), txt))
+        outputs = {"video": out, "pc": ma, "mic": mb, "listen": listen, "audio_min": max(dur_a, dur_b) / 60,
                    "video_min": (vdur / 60) if vdur else None}
         ok = True
         return outputs
