@@ -50,3 +50,21 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: dist/ShadowPlayTrackSplitter.exe
+      - name: Publish intermediate version (1.4.11 ...) as a pre-release for the developer update channel
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(python -c "import re;print(re.search(r'APP_VERSION = \"([0-9.]+)\"',open('gui.py').read()).group(1))")
+          echo "version $VER"
+          if [ "$(echo "$VER" | tr -cd . | wc -c)" -ge 2 ]; then
+            if gh release view "v$VER" >/dev/null 2>&1; then
+              echo "release v$VER already exists"
+            else
+              gh release create "v$VER" dist/ShadowPlayTrackSplitter.exe --target "$GITHUB_SHA" --prerelease \
+                --title "v$VER (intermediate)" --notes "Intermediate build for the developer update channel. Stable users get only releases like 1.4, 1.5."
+            fi
+          else
+            echo "stable version: its release is made by hand"
+          fi
