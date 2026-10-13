@@ -15,9 +15,9 @@ for k in range(0, n, P):
 for i in range(n):
     s[i] = rng.normal(0.29, 0.03) if truth[i] else rng.normal(0.44, 0.015)
     m[i] = 200.0
-est = core.estimate_period_mono(s)
-assert est is not None and est[0] == P and est[1] == Lm, est
-lab, _ = core.segment_labels(s, m, P, Lm, pcmono=True, lam=2.0, jump=30.0)
+est = core.find_schedule(s, m)
+assert est == (P, Lm, True), est
+lab, _ = core.segment_labels(s, m, P, Lm, mono_pc=True)
 acc = float((lab == truth).mean())
 print("accuracy", acc)
 assert acc > 0.97

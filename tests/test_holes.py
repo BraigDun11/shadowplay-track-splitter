@@ -1,40 +1,26 @@
-"""Holes: short ones are closed (no silence, sound stays continuous), long ones are padded."""
+"""Tracks are plain concatenations of their own chunks: nothing is inserted, nothing is shifted,
+and a track that delivered two chunks in a row does not make the other one 'lose' anything."""
 import os, sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import core
 
-P, Lm = 94, 46
 
-
-def build(missing_mic_chunks):
-    """Alternating PC(48)/mic(46) runs where `missing_mic_chunks` mic chunks are lost in a row."""
-    runs, pos, k = [], 0, 0
-    while k < 40:
-        runs.append((pos, pos + 48, 1)); pos += 48
-        if k == 20 and missing_mic_chunks:
-            # the PC chunks run together because the mic chunks between them are gone
-            for _ in range(missing_mic_chunks):
-                runs.append((pos, pos + 48, 1)); pos += 48
-        else:
-            runs.append((pos, pos + 46, 0)); pos += 46
-        k += 1
-    # merge neighbouring runs of the same label (as label_runs would)
-    merged = []
-    for b, e, t in runs:
-        if merged and merged[-1][2] == t:
-            merged[-1] = (merged[-1][0], e, t)
-        else:
-            merged.append((b, e, t))
+def build(pc_double_at=20):
+    runs, pos = [], 0
+    for k in range(40):
+        ln = 96 if k == pc_double_at else 48       # two PC chunks in a row (mic delivered nothing between)
+        runs.append((pos, pos + ln, 1)); pos += ln
+        runs.append((pos, pos + 46, 0)); pos += 46
     n = pos
-    data = bytes(range(256)) * (n // 256 + 1)
+    data = bytes(i % 251 for i in range(n))
     frames = [(i, 1) for i in range(n)]
-    return core.build_tracks(data, frames, merged, n, P, Lm, b"\xff")
+    st, mo = core.build_tracks(data, frames, runs, n)
+    return runs, data, st, mo
 
 
-_, _, filled = build(1)
-print("one lost chunk:", filled)
-assert filled[0] == 0 and filled[1] == 0
-_, mono, filled = build(5)
-print("five lost chunks:", filled)
-assert filled[0] > 100          # long hole: the microphone is padded
+runs, data, st, mo = build()
+exp_pc = b"".join(data[b:e - 1] for b, e, t in runs if t == 1)          # PC runs lose their last (smeared) packet
+exp_mic = b"".join(data[max(b - 1, 0):e] for b, e, t in runs if t == 0)
+assert bytes(st) == exp_pc and bytes(mo) == exp_mic
+print("lengths", len(st), len(mo))
 print("OK")

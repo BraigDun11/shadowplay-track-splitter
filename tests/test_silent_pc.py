@@ -20,10 +20,9 @@ for k in range(200):
     else:                                   # silent PC chunk
         s[pc] = rng.normal(0.34, 0.005, 48)
         m[pc] = 0
-print("plain:", core.estimate_period(s), "with m:", core.estimate_period(s, m))
-r = core.estimate_period(s, m)
-assert r == (94, 46), r
-lab, _ = core.segment_labels(s, m, *r)
+r = core.find_schedule(s, m)
+assert r == (94, 46, False), r
+lab, _ = core.segment_labels(s, m, 94, 46)
 runs = core.label_runs(lab)
 bad = [x for x in runs if abs((x[1] - x[0]) - {1: 48, 0: 46}[x[2]]) > 3]
 print("irregular runs:", len(bad))
