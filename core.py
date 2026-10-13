@@ -465,23 +465,31 @@ def frame_features(stream, channels, total_frames=None, progress=None):
 
 
 # ------------------------------------------------------- chunk schedule
-def estimate_period(s):
-    """Find the schedule period and the length of the mono (microphone) chunk.
-    The microphone track has L == R exactly, so s == 0 on its chunks."""
-    mono = s < 0.5
+def _period_from(mono, need):
     d = np.diff(np.r_[0, mono.astype(np.int8), 0])
     st = np.where(d == 1)[0]
     en = np.where(d == -1)[0]
     ln = en - st
     cand = ln[(ln >= 35) & (ln <= 60)]
-    if len(cand) < 20:
+    if len(cand) < need:
         return None
     lm = collections.Counter(cand.tolist()).most_common(1)[0][0]
     sp = np.diff(st[ln == lm])
     sp = sp[(sp > 60) & (sp < 140)]
-    if len(sp) < 20:
+    if len(sp) < need:
         return None
     return collections.Counter(sp.tolist()).most_common(1)[0][0], lm
+
+
+def estimate_period(s, m=None):
+    """Find the schedule period and the length of the mono (microphone) chunk.
+    The microphone track has L == R exactly, so s == 0 on its chunks.
+    With m given, a second try ignores digital silence: a silent PC chunk looks 'mono' as well and
+    would glue itself to the neighbouring microphone chunks."""
+    r = _period_from(s < 0.5, 20)
+    if r is None and m is not None and float(np.mean(s > 1.0)) >= 0.05:
+        r = _period_from((s < 0.5) & (m >= 1), 12)
+    return r
 
 
 MIC_NOISE_M = 3.0
@@ -899,7 +907,7 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             sec = int(k * FRAME / sr / 2)      # position in the finished tracks (the mixed stream is twice as long)
             return "%d:%02d:%02d" % (sec // 3600, sec % 3600 // 60, sec % 60)
 
-        est = estimate_period(s)
+        est = estimate_period(s, m)
         pcmono = False
         if est is None:
             est = estimate_period_mono(s)      # PC sound is mono as well (old/mono games)
