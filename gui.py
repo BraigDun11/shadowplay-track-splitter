@@ -31,7 +31,7 @@ except Exception:  # pragma: no cover
     DND_FILES = TkinterDnD = None
     HAVE_DND = False
 
-APP_VERSION = "1.4.15"
+APP_VERSION = "1.4.16"
 
 # Where the "support the author" button leads. Leave empty to hide the button until a page exists.
 DONATE_URL = ""
@@ -52,6 +52,25 @@ W, H = 780, 700            # client size at 100 % scaling
 UI = {
     "en": {
         "title": "ShadowPlay Track Splitter",
+        "about": "About",
+        "about_title": "About the app",
+        "about_sections": [
+            ("What it does", "Fixes NVIDIA ShadowPlay recordings after they were restored with untrunc: in such a video the PC sound "
+             "and the microphone are mixed into one audio track. The app separates them without re-encoding and builds "
+             "a video with two audio tracks (PC and Mic)."),
+            ("How to use it", "1. First restore the damaged recording with untrunc.\n"
+             "2. Drop the restored video into this window (or click the frame).\n"
+             "3. Leave the mode \"Split mixed audio tracks\" and press Start.\n"
+             "4. The result is saved to the folder from the settings (the gear), by default Documents\\ShadowPlay Track Splitter\\Fixed. "
+             "The original is never changed."),
+            ("The second mode", "\"Extract audio tracks from a normal video\" pulls the audio tracks out of an ordinary video "
+             "and can keep any one of them in the video."),
+            ("If something sounds wrong", "Listen to the result in a video editor. Turn on the developer mode in the settings: after "
+             "the work the app lists the places worth listening to. A report of every run is saved in the reports folder "
+             "(the button after the work); send it to the author together with the file *_features.npz - that is how "
+             "such cases get fixed."),
+        ],
+        "about_footer": "Author: BraigDun11  -  github.com/BraigDun11/shadowplay-track-splitter",
         "drop": "Drop a video here or click to choose",
         "modes": ["Split mixed audio tracks", "Extract audio tracks from a normal video"],
         "swap": "Swap the audio tracks",
@@ -126,6 +145,25 @@ UI = {
     },
     "ru": {
         "title": "ShadowPlay Track Splitter",
+        "about": "О приложении",
+        "about_title": "О приложении",
+        "about_sections": [
+            ("Что это", "Чинит записи NVIDIA ShadowPlay после восстановления программой untrunc: в таком видео звук ПК и "
+             "микрофон смешаны в одной дорожке. Приложение разделяет их без перекодирования и собирает видео "
+             "с двумя аудиодорожками (ПК и Микрофон)."),
+            ("Как пользоваться", "1. Сначала восстановите повреждённую запись программой untrunc.\n"
+             "2. Перетащите восстановленное видео в это окно (или нажмите на рамку).\n"
+             "3. Оставьте режим «Разделить смешанные аудиодорожки» и нажмите «Начать».\n"
+             "4. Результат сохранится в папку из настроек (шестерёнка), по умолчанию Документы\\ShadowPlay Track Splitter\\Fixed. "
+             "Исходный файл не меняется."),
+            ("Второй режим", "«Достать аудиодорожки из обычного видео» вытаскивает аудиодорожки из обычного видео "
+             "и может оставить в видео любую одну из них."),
+            ("Если что-то звучит не так", "Послушайте результат в видеоредакторе. Включите режим разработчика в настройках: после "
+             "работы приложение покажет места, которые стоит прослушать. Отчёт о каждом запуске лежит в папке "
+             "отчётов (кнопка после работы); пришлите его автору вместе с файлом *_features.npz — так такие "
+             "случаи исправляются."),
+        ],
+        "about_footer": "Автор: BraigDun11  -  github.com/BraigDun11/shadowplay-track-splitter",
         "drop": "Перетащи или нажми, чтобы выбрать",
         "modes": ["Разделить смешанные аудиодорожки", "Достать аудиодорожки из обычного видео"],
         "swap": "Поменять аудиодорожки местами",
@@ -220,6 +258,7 @@ class App:
         updater.cleanup_old()
         self.ffmpeg = core.find_ffmpeg(self.cfg.get("ffmpeg")) or core.find_ffmpeg()
         self.settings_open = False
+        self.about_open = False
 
         try:
             self.k = max(1.0, root.winfo_fpixels("1i") / 96.0)
@@ -395,7 +434,11 @@ class App:
         if self.settings_open:
             self.render_settings()
             return
+        if self.about_open:
+            self.render_about()
+            return
         self.render_gear(working)
+        self.render_help(working)
 
         # card with the frame / drop zone
         self.rrect(110, 32, 670, 247, 28, PANEL)
@@ -532,6 +575,61 @@ class App:
             self.cv.create_oval(S(744), S(14), S(756), S(26), fill=GREEN, outline=BG, width=max(1, S(2)))
         if not working:
             self.add_hit(716, 8, 760, 52, self.open_settings, "gear")
+
+    def render_help(self, working):
+        """The round '?' in the top-left corner opens the About page."""
+        S = self.S
+        hi = self.hovered("help")
+        col = WHITE if hi else GRAY
+        self.cv.create_oval(S(28), S(16), S(56), S(44), outline=col, width=max(2, S(2)))
+        self.text(42, 30, "?", self.f_big, col, "center")
+        if not working:
+            self.add_hit(20, 8, 64, 52, self.open_about, "help")
+
+    def open_about(self):
+        self.about_open = True
+        self.menu = None
+        self.render()
+
+    def close_about(self):
+        self.about_open = False
+        self.render()
+
+    def wrap(self, s, font, max_w):
+        """Break text into lines that fit max_w (in 100 %-scale pixels); keeps explicit line breaks."""
+        lines = []
+        for para in s.split("\n"):
+            cur = ""
+            for word in para.split(" "):
+                trial = (cur + " " + word).strip()
+                if cur and font.measure(trial) > max_w * self.k:
+                    lines.append(cur)
+                    cur = word
+                else:
+                    cur = trial
+            lines.append(cur)
+        return lines
+
+    def render_about(self):
+        t = self.t
+        self.text(390, 40, t["about_title"], self.f_big, WHITE, "center")
+        lh = 19
+        y = 70
+        for title, body in t["about_sections"]:
+            lines = self.wrap(body, self.f_tiny, 500)
+            h = 14 + 22 + lh * len(lines) + 12
+            self.rrect(110, y, 670, y + h, 22, PANEL)
+            self.text(134, y + 24, title, self.f_small, GREEN, "w")
+            for k, ln in enumerate(lines):
+                self.text(134, y + 24 + 22 + lh * k, ln, self.f_tiny, WHITE, "w")
+            y += h + 10
+        self.text(390, H - 78, t["about_footer"], self.f_tiny, GRAY, "center")
+        self.text(390, H - 58, t["ffmpeg_ok"] % APP_VERSION, self.f_tiny, DIM, "center")
+        self.add_hit(190, H - 90, 590, H - 68, lambda: webbrowser.open("https://github.com/BraigDun11/shadowplay-track-splitter"), "gh")
+        hi = self.hovered("close")
+        self.rrect(260, H - 44, 520, H - 10, 17, "#6BF000" if hi else GREEN)
+        self.text(390, H - 27, t["close"], self.f_med, WHITE, "center")
+        self.add_hit(260, H - 44, 520, H - 10, self.close_about, "close")
 
     def open_settings(self):
         self.settings_open = True
