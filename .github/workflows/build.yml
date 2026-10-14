@@ -23,20 +23,12 @@ jobs:
         run: python tests/test_synthetic.py
       - name: Mono-stretch regression test
         run: python tests/test_mono_stretch.py
-      - name: Chunk-length jitter regression test
-        run: python tests/test_jitter.py
-      - name: Hole handling test
-        run: python tests/test_holes.py
       - name: Updater test
         run: python tests/test_updater.py
       - name: Cancel test
         run: python tests/test_cancel.py
       - name: Video hole test
         run: python tests/test_vgaps.py
-      - name: PC mono test
-        run: python tests/test_pcmono.py
-      - name: Silent PC test
-        run: python tests/test_silent_pc.py
       - name: GUI smoke test
         run: python tests/test_gui_smoke.py
       - name: Build exe

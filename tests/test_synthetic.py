@@ -76,10 +76,8 @@ def main():
     print("PC packets: %d (bit-exact), mic: %d, foreign in mic: %d, silence packets: %d"
           % (len(pc), len(mic), foreign, silence))
     assert foreign == 0
-    # short holes (47 + 18 lost packets) are closed, not padded: every track keeps its own
-    # continuous sound and nothing is added
-    assert silence == 0, silence
-    assert 60 <= len(pc) - len(mic) <= 70, (len(pc), len(mic))
+    assert 60 <= silence <= 70, silence   # 47 + 18 = 65 expected
+    assert abs(len(pc) - len(mic)) <= 1
 
     # --- normal video with two separate tracks: extraction mode
     two = os.path.join(tmp, "two.mp4")
