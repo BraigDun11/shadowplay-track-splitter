@@ -31,7 +31,7 @@ except Exception:  # pragma: no cover
     DND_FILES = TkinterDnD = None
     HAVE_DND = False
 
-APP_VERSION = "1.4.17"
+APP_VERSION = "1.4.18"
 
 # Where the "support the author" button leads. Leave empty to hide the button until a page exists.
 DONATE_URL = ""

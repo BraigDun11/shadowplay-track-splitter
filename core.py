@@ -47,14 +47,13 @@ MSG = {
         "s4": "4/5 Splitting. Schedule shifts found: {n}",
         "shift_at": "      around {t} (time in the finished video)",
         "agree": "    agreement with signal: stereo {a:.1f}%, mono {b:.1f}%",
-        "filled": "    silence inserted to keep sync: PC {a:.1f} s, mic {b:.1f} s",
         "low_agree": "    WARNING: low agreement - result may contain mixed-up pieces.",
         "dur": "    track length: PC {a:.2f} min, mic {b:.2f} min",
         "vdur": "    video length (picture only): {v:.2f} min",
         "stretch": "    stretching video by x{s:.4f} to match audio",
         "starts": "    Check of the finished file - stream start times (s): {v}",
         "ev_head": "    Places worth listening to ({n}; time in the finished video):",
-        "ev_shift": "the chunk schedule shifted here: a click, a cut or swapped bits are possible",
+        "ev_shift": "the chunk schedule shifted (a chunk of {n} packets instead of {nom}): a click, a cut or swapped bits are possible",
         "ev_silent": "the {n} track is completely silent for {d:.0f} s (muted or lost sound)",
         "ev_vgap": "the video has a hole here: {g:.1f} s of picture missing",
         "silent": "    Check of the finished file: the {n} track is completely silent for {d:.0f} s from {t}",
@@ -101,14 +100,13 @@ MSG = {
         "s4": "4/5 Разделяю. Сдвигов расписания найдено: {n}",
         "shift_at": "      около {t} (время в готовом видео)",
         "agree": "    согласие с признаками: стерео {a:.1f}%, моно {b:.1f}%",
-        "filled": "    вставлено тишины для сохранения синхронизации: ПК {a:.1f} с, микрофон {b:.1f} с",
         "low_agree": "    ВНИМАНИЕ: согласие низкое - в дорожках могут быть перепутанные кусочки.",
         "dur": "    длина дорожек: ПК {a:.2f} мин, микрофон {b:.2f} мин",
         "vdur": "    длина видео (только картинка): {v:.2f} мин",
         "stretch": "    растягиваю видео в {s:.4f} раза, чтобы совпало со звуком",
         "starts": "    Проверка готового файла - начало потоков (с): {v}",
         "ev_head": "    Места, которые стоит прослушать ({n}; время в готовом видео):",
-        "ev_shift": "здесь расписание кусков сдвинулось: возможны щелчок, обрыв или перепутанные кусочки",
+        "ev_shift": "расписание кусков сдвинулось (кусок из {n} пакетов вместо {nom}): возможны щелчок, обрыв или перепутанные кусочки",
         "ev_silent": "дорожка {n} полностью беззвучна {d:.0f} с (выключен микрофон или потерян звук)",
         "ev_vgap": "в видео здесь дыра: не хватает {g:.1f} с картинки",
         "silent": "    Проверка готового файла: дорожка {n} полностью беззвучна {d:.0f} с, начиная с {t}",
@@ -459,41 +457,60 @@ def frame_features(stream, channels, total_frames=None, progress=None):
 
 
 # ------------------------------------------------------- chunk schedule
-def estimate_period(s):
-    """Find the schedule period and the length of the mono (microphone) chunk.
-    The microphone track has L == R exactly, so s == 0 on its chunks."""
-    mono = s < 0.5
+def _period_from(mono, need):
     d = np.diff(np.r_[0, mono.astype(np.int8), 0])
     st = np.where(d == 1)[0]
     en = np.where(d == -1)[0]
     ln = en - st
     cand = ln[(ln >= 35) & (ln <= 60)]
-    if len(cand) < 20:
+    if len(cand) < need:
         return None
     lm = collections.Counter(cand.tolist()).most_common(1)[0][0]
     sp = np.diff(st[ln == lm])
     sp = sp[(sp > 60) & (sp < 140)]
-    if len(sp) < 20:
+    if len(sp) < need:
         return None
     return collections.Counter(sp.tolist()).most_common(1)[0][0], lm
 
 
-def lattice_labels(s, m, P, Lm, switch_cost=150.0, progress=None):
-    """Label of every packet: 1 = stereo (PC), 0 = mono (mic).
-    Chunks follow a strict schedule of period P; rare phase shifts are allowed
-    but expensive, so random noise does not trigger them."""
+# What each packet "says" about the track it belongs to (s: L-R difference, m: loudness).
+# PC sound is normally real stereo (s large); the microphone is dual-mono (s about 0.44, plus its
+# own noise floor); digital silence has s about 0.34 and says nothing.
+MONO_PC = 0.05          # fewer stereo packets than this: the PC sound is (nearly) mono as well
+PC_MONO_S = 0.36        # mono PC sound has s of about 0.3 ...
+MIC_S = 0.41            # ... the microphone about 0.44
+PRIOR_W = 0.15          # weight of the coarse labelling when the signal is weak
+STEREO_RICH = 0.30      # share of stereo packets (of all) from which the PC sound counts as 'mostly stereo'
+
+
+def find_schedule(s, m):
+    """(period, mic chunk length, mono_pc) of the interleaving, or None if the sound is not interleaved.
+    The microphone chunks are dual-mono; digital silence of the PC looks mono as well and is ignored."""
+    stereo = float(np.mean(s > 1.0)) >= MONO_PC
+    if stereo:
+        r = _period_from(s < 0.5, 20) or _period_from((s < 0.5) & (m >= 1), 12)
+        if r:
+            return r[0], r[1], False
+    q = ((s >= 0.40) & (s < 0.5)).astype(np.int8)                  # microphone-like packet
+    sm = (np.convolve(q, np.ones(5), "same") >= 3).astype(np.int8)  # remove isolated outliers
+    r = _period_from(sm, 20)
+    return (r[0], r[1], True) if r else None
+
+
+def lattice_labels(s, m, P, Lm, mono_pc=False, switch_cost=150.0, progress=None):
+    """Coarse labelling: chunks follow a strict schedule of period P, rare phase shifts are allowed but
+    expensive.  Robust where the signal is weak (quiet or mono-sounding passages), but the real chunk
+    lengths jitter by a packet or two, so its borders drift: segment_labels() refines them."""
     n = len(s)
     e = np.zeros(n)
     low = s < 0.5
     e[s > 1.0] = 1.0
-    # "Mono" packets only count as microphone evidence when stereo PC audio is plentiful.
-    # Games sometimes switch to mono sound: then PC chunks look like mic chunks, both vote
-    # "mono", and the schedule would flip by half a period (PC <-> mic swapped for a while).
-    # In that case only real stereo packets are allowed to decide the phase.
-    stereo_share = float(np.mean(s > 1.0))
-    if stereo_share < 0.05:
+    if float(np.mean(s > 1.0)) < 0.05:
         e[low & (m >= 30)] = -1.0
         e[low & (m >= 5) & (m < 30)] = -0.4
+    if mono_pc:
+        e[(s < PC_MONO_S) & (m > 2)] = 0.7
+        e[(s >= MIC_S) & (s < 0.5)] = -0.4
     phi = np.arange(P)
     T = ((np.arange(P)[:, None] - phi[None, :]) % P) < Lm
     SG = np.where(T, -1.0, 1.0)
@@ -517,7 +534,97 @@ def lattice_labels(s, m, P, Lm, switch_cost=150.0, progress=None):
         if not stay[i, cur]:
             cur = int(g[i])
     mono_lab = ((np.arange(n) - phases) % P) < Lm
-    return (~mono_lab).astype(np.int8), phases
+    return (~mono_lab).astype(np.int8)
+
+
+def segment_labels(s, m, P, Lm, mono_pc=False, prior=None, lmin=8, progress=None):
+    """Label of every packet: 1 = stereo (PC), 0 = mono (mic), plus the list of chunks.
+
+    The recording is cut into alternating chunks (PC, mic, PC, ...).  A chunk normally has the
+    nominal length (P - Lm packets for PC, Lm for the mic) but may be a few packets longer or
+    shorter, or span two chunks when the other track delivered nothing in between.  Dynamic
+    programming picks the cut that agrees best with the signal; every deviation from the nominal
+    length costs `lam` per packet (`jump` extra for each additional chunk).  Where the signal says
+    nothing (silence) the nominal rhythm simply goes on."""
+    n = len(s)
+    nom = {1: P - Lm, 0: Lm}
+    lam, jump = (2.0, 30.0) if mono_pc else (0.5, 10.0)
+    stereo_rich = float(np.mean(s > 1.0)) >= STEREO_RICH
+    e = np.zeros(n)
+    e[s > 1.0] = 1.0                                   # stereo: PC
+    if float(np.mean(s > 1.0)) < 0.05:                 # (almost) no stereo: the microphone's own sound counts
+        low = s < 0.5
+        e[low & (m >= 30)] = -1.0
+        e[low & (m >= 5) & (m < 30)] = -0.4
+    if mono_pc:
+        e[(s < PC_MONO_S) & (m > 2)] = 0.7             # mono PC sound: low s ...
+        e[(s >= MIC_S) & (s < 0.5)] = -0.4             # ... microphone: higher s
+    elif float(np.mean(s > 1.0)) >= STEREO_RICH:
+        # weak extra vote in quiet passages (only if the PC sound is stereo most of the time, otherwise
+        # the levels of s of PC and microphone overlap and would mislead): the microphone's dual-mono packets have s of about 0.44
+        # (with some noise: m >= 3), a quiet mono-sounding PC passage clearly lower.  Digital silence
+        # has a similar s and says nothing, hence the m conditions.
+        quiet = (s < 0.5) & (m >= 3)
+        if int(quiet.sum()) >= 2000:
+            fp = float(np.median(s[quiet]))            # typical s of the microphone (about 0.44)
+            mic_like = ((s >= fp - 0.03) & (m > 20)) | ((s >= fp - 0.01) & (m >= 3))
+            low = s < 0.5
+            e[low] -= 0.1 * np.where(mic_like, 1.0, np.where(s <= fp - 0.12, -1.0, 0.0))[low]
+    if prior is not None and not stereo_rich:
+        # little stereo sound to go by: stay close to the coarse labelling, only its borders may move
+        e = e + PRIOR_W * (2.0 * prior - 1.0)
+    cs = np.r_[0.0, np.cumsum(e)]
+    lmax = 3 * max(nom.values()) + 10
+    Ls = np.arange(lmin, lmax + 1)
+    pen = {}
+    for t in (0, 1):
+        p = np.full(len(Ls), np.inf)
+        for k in (1, 2, 3):
+            p = np.minimum(p, lam * np.abs(Ls - k * nom[t]) + jump * (k - 1))
+        pen[t] = p
+    sg = {1: 1.0, 0: -1.0}
+    f = {0: np.full(n + 1, -np.inf), 1: np.full(n + 1, -np.inf)}
+    arg = {0: np.zeros(n + 1, dtype=np.int16), 1: np.zeros(n + 1, dtype=np.int16)}
+    step = max(1, n // 50)
+    for i in range(1, n + 1):
+        for t in (0, 1):
+            best, bl = -np.inf, 0
+            if i <= lmax:                      # the first run may start at 0 with any length
+                best, bl = sg[t] * cs[i], i
+            ok = Ls <= i
+            if ok.any():
+                L = Ls[ok]
+                cand = f[1 - t][i - L] + sg[t] * (cs[i] - cs[i - L]) - pen[t][ok]
+                j = int(np.argmax(cand))
+                if cand[j] > best:
+                    best, bl = float(cand[j]), int(L[j])
+            f[t][i] = best
+            arg[t][i] = bl
+        if progress and i % step == 0:
+            progress(i / n)
+    t = 1 if f[1][n] >= f[0][n] else 0
+    lab = np.zeros(n, dtype=np.int8)
+    i = n
+    runs = []
+    while i > 0:
+        L = int(arg[t][i])
+        lab[i - L:i] = t
+        runs.append((i - L, i, t))
+        i -= L
+        t = 1 - t
+    runs.reverse()
+    return lab, runs
+
+
+def odd_chunks(runs, P, Lm, tol=3):
+    """Chunks whose length is neither one nominal chunk nor two or three of them in a row
+    (those are ordinary: the other track simply delivered nothing in between)."""
+    nom = {1: P - Lm, 0: Lm}
+    out = []
+    for b, e, t in runs[1:-1]:
+        if min(abs((e - b) - k * nom[t]) for k in (1, 2, 3)) > tol:
+            out.append((b, e - b, t))
+    return out
 
 
 def label_runs(lab):
@@ -526,54 +633,23 @@ def label_runs(lab):
     return [(int(b[k]), int(b[k + 1]), int(lab[b[k]])) for k in range(len(b) - 1)]
 
 
-def silent_packet(ffmpeg, data, frames, m, sr, ch):
-    """One AAC packet of digital silence: taken from the file itself if possible."""
-    cnt = collections.Counter()
-    for i in np.where(m < 0.5)[0][:5000]:
-        if i < len(frames):
-            o, l = frames[i]
-            cnt[bytes(data[o:o + l])] += 1
-    if cnt:
-        pk, c = cnt.most_common(1)[0]
-        if c >= 3:
-            return pk
-    r = _run([ffmpeg, "-v", "error", "-f", "lavfi", "-i",
-              "anullsrc=r=%d:cl=%s" % (sr, "stereo" if ch == 2 else "mono"),
-              "-t", "1", "-c:a", "aac", "-f", "adts", "-"])
-    d = r.stdout
-    fr = parse_adts(d)
-    o, l = fr[len(fr) // 2]
-    return d[o:o + l]
+def build_tracks(data, frames, runs, n):
+    """Cut the interleaved packet stream into two tracks (bit-exact).
 
-
-def build_tracks(data, frames, runs, n, P, Lm, sil):
-    """Cut the interleaved packet stream into two tracks (bit-exact)."""
+    Each track is simply its own chunks one after another: nothing is inserted, nothing is shifted.
+    (When one track delivers two chunks in a row, the other one is not lost - it is only late.)"""
     stereo, mono = bytearray(), bytearray()
-    nom = {1: P - Lm, 0: Lm}
-    filled = {1: 0, 0: 0}
-    for k, (b, e, t) in enumerate(runs):
-        # The decoder smears each switch over 1 packet: the stereo run looks 1 packet
+    for b, e, t in runs:
+        # The decoder smears each PC -> mic switch over 1 packet: the stereo run looks 1 packet
         # longer and the mono run 1 packet shorter. Restore the true packet borders.
         if t == 1:
-            pb, pe, out, other = b, min(e, n) - 1, stereo, mono
-            if e >= n:
-                pe = n
+            pb, pe = b, (n if e >= n else min(e, n) - 1)
         else:
-            pb, pe, out, other = max(b - 1, 0), e, mono, stereo
+            pb, pe = max(b - 1, 0), e
         if pe > pb:
-            out += data[frames[pb][0]: frames[pe - 1][0] + frames[pe - 1][1]]
-        if 0 < k < len(runs) - 1:
-            ln = e - b
-            cnt = int(round(ln / nom[t]))
-            true_other = (nom[1 - t] - 1) if t == 0 else (nom[1 - t] + 1)
-            miss = (cnt - 1) * true_other   # several chunks in a row -> other track lost a chunk
-            if cnt <= 1 and ln < nom[t] - 3:  # a too-short chunk -> part of this track lost
-                out += sil * (nom[t] - ln)
-                filled[t] += nom[t] - ln
-            if miss > 0:
-                other += sil * miss
-                filled[1 - t] += miss
-    return stereo, mono, filled
+            chunk = data[frames[pb][0]: frames[pe - 1][0] + frames[pe - 1][1]]
+            (stereo if t == 1 else mono).extend(chunk)
+    return stereo, mono
 
 
 # ----------------------------------------------------- normal videos: tracks
@@ -780,30 +856,29 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             sec = int(k * FRAME / sr / 2)      # position in the finished tracks (the mixed stream is twice as long)
             return "%d:%02d:%02d" % (sec // 3600, sec % 3600 // 60, sec % 60)
 
-        est = estimate_period(s)
+        est = find_schedule(s, m)
         if est is None:
             raise SplitError(M["no_sched"].format(path=feat))
-        P, Lm = est
+        P, Lm, mono_pc = est
         say("sched", p=P, lm=Lm, ls=P - Lm)
-        lab, phases = lattice_labels(s, m, P, Lm, progress=prog(0.45, 0.75))
-        runs = label_runs(lab)
+        coarse = lattice_labels(s, m, P, Lm, mono_pc=mono_pc, progress=prog(0.45, 0.6))
+        lab, runs = segment_labels(s, m, P, Lm, mono_pc=mono_pc, prior=coarse, progress=prog(0.6, 0.75))
 
-        shifts = np.where(np.diff(phases) != 0)[0]
-        say("s4", n=len(shifts))
-        for i in shifts[:15]:
-            say("shift_at", t=stamp(i))
+        nomlen = {1: P - Lm, 0: Lm}
+        odd = odd_chunks(runs, P, Lm)
+        say("s4", n=len(odd))
+        for b_, _, _ in odd[:15]:
+            say("shift_at", t=stamp(b_))
         a_st = 100 * float((lab[s > 1.0] == 1).mean()) if (s > 1.0).any() else 100.0
-        mono_sel = (s < 0.5) & (m >= 30)
+        mono_sel = ((s >= 0.41) & (s < 0.5) & (m >= 30)) if mono_pc else ((s < 0.5) & (m >= 30))
         a_mo = 100 * float((lab[mono_sel] == 0).mean()) if mono_sel.any() else 100.0
         say("agree", a=a_st, b=a_mo)
         # mono agreement is naturally lower when the PC sound itself is mono for a while, so it
         # only counts when it is really poor
-        if min(a_st, a_mo) < 90:
+        if (a_st < 90 or a_mo < 40) and not mono_pc:
             say("low_agree")
 
-        sil = silent_packet(ff, data, frames, m, sr, ch)
-        stereo, mono, filled = build_tracks(data, frames, runs, n, P, Lm, sil)
-        say("filled", a=filled[1] * FRAME / sr, b=filled[0] * FRAME / sr)
+        stereo, mono = build_tracks(data, frames, runs, n)
         if swap:
             stereo, mono = mono, stereo
         suf = unique_suffix(["{base}_fixed{n}.mp4", "{base}_track1_PC{n}.m4a", "{base}_track2_MIC{n}.m4a"],
@@ -844,8 +919,8 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
                 say("vgaps0", n=nfr, f=fps, e=nfr / fps / 60.0)
 
         listen = []                                   # (seconds in the finished video, text)
-        for i in shifts:
-            listen.append((i * FRAME / sr / 2, M["ev_shift"]))
+        for b_, ln_, t_ in odd:
+            listen.append((b_ * FRAME / sr / 2, M["ev_shift"].format(n=ln_, nom=nomlen[t_])))
         if vg and vg[2]:
             for tt, g in vg[2][:30]:
                 listen.append((tt, M["ev_vgap"].format(g=g)))

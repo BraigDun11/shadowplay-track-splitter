@@ -21,8 +21,8 @@ The same problem is reported in untrunc issues
 ## What this tool does
 
 It finds the strict ~1-second schedule of the interleaved chunks and **rebuilds the two tracks from the
-original AAC packets - no re-encoding, no quality loss, no AI**. Where the repair lost audio, it inserts silence
-so the tracks stay in sync. The result is the video with two audio tracks plus both tracks as separate `.m4a` files.
+original AAC packets - no re-encoding, no quality loss, no AI**. Each track is just its own chunks one after
+another; nothing is inserted or shifted. The result is the video with two audio tracks plus both tracks as separate `.m4a` files.
 
 ## Use (Windows)
 
@@ -81,7 +81,7 @@ or `python cli.py video.mp4 --extract --keep 1` (extract mode).
 The microphone track has identical left and right channels, the PC track does not. That gives a reliable
 fingerprint of each packet. The chunks follow a fixed schedule (in our recordings 47 + 47 packets of 1024
 samples), so the tool fits a periodic schedule to the fingerprints (rare phase shifts allowed) instead of
-guessing every border separately. A lost chunk shows up as a break in the schedule and is filled with silence.
+guessing every border separately. The strict schedule gives the rhythm, the real signal gives the exact edge of every chunk.
 
 ## Status and limits - please read
 
@@ -121,8 +121,8 @@ License: MIT. Author: kevin ([BraigDun11](https://github.com/BraigDun11)). Devel
 ПК, ~1 секунда микрофон, а вторая дорожка пустая.
 
 **Что делает программа.** Находит строгое расписание кусков по ~1 секунде и **пересобирает две дорожки из
-исходных AAC-пакетов: без перекодирования, без потери качества, без нейросетей**. Там, где при восстановлении
-пропал звук, вставляет тишину, чтобы дорожки не разъехались.
+исходных AAC-пакетов: без перекодирования, без потери качества, без нейросетей**. Каждая дорожка — просто её
+собственные куски подряд: ничего не вставляется и не сдвигается.
 
 **Как пользоваться (Windows).**
 1. Скачайте `ShadowPlayTrackSplitter.exe` в разделе [Releases](../../releases).

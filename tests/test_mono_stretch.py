@@ -20,7 +20,10 @@ for i in range(n):
     else:
         s[i] = 0.34 if mono_game else 0.45
         m[i] = 1.4 if mono_game else rng.uniform(10, 500)
-lab, ph = core.lattice_labels(s, m, P, L)
+sc = core.find_schedule(s, m)
+assert sc is not None and sc[:2] == (P, L), sc
+coarse = core.lattice_labels(s, m, P, L, mono_pc=sc[2])
+lab, _ = core.segment_labels(s, m, P, L, mono_pc=sc[2], prior=coarse)
 acc = float((lab == truth).mean())
 print("accuracy %.3f" % acc)
 assert acc > 0.98, acc

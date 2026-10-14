@@ -23,6 +23,14 @@ jobs:
         run: python tests/test_synthetic.py
       - name: Mono-stretch regression test
         run: python tests/test_mono_stretch.py
+      - name: Chunk-length jitter test
+        run: python tests/test_jitter.py
+      - name: Track assembly test
+        run: python tests/test_holes.py
+      - name: PC mono test
+        run: python tests/test_pcmono.py
+      - name: Silent PC test
+        run: python tests/test_silent_pc.py
       - name: Updater test
         run: python tests/test_updater.py
       - name: Cancel test
