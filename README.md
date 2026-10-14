@@ -97,7 +97,7 @@ guessing every border separately. A lost chunk shows up as a break in the schedu
 
 `build_exe.bat` (needs Python), or let GitHub Actions do it (`.github/workflows/build.yml`).
 
-License: MIT. Author: [BraigDun11](https://github.com/BraigDun11). Developed together with Claude (Anthropic's AI assistant).
+License: MIT. Author: kevin ([BraigDun11](https://github.com/BraigDun11)). Developed together with kloudi (Claude, Anthropic's AI assistant).
 
 ---
 
@@ -141,7 +141,7 @@ License: MIT. Author: [BraigDun11](https://github.com/BraigDun11). Developed tog
 Если ПК и микрофон оказались наоборот, включите **«Поменять дорожки местами»**. Если звук всё сильнее
 отстаёт от картинки к концу, включите **«Растянуть видео под длину звука»**.
 
-**Автор:** BraigDun11, разработано вместе с Claude (ИИ-ассистент Anthropic).
+**Автор:** kevin ([BraigDun11](https://github.com/BraigDun11)), разработано совместно с kloudi (Claude, ИИ-ассистент Anthropic).
 
 **Статус.** Проверено на одной реальной записи и на синтетических тестах. На других записях расписание может
 быть иным: если что-то не так, создайте issue и приложите `*_report.txt` (и `*_features.npz`, если запускали

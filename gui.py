@@ -31,10 +31,11 @@ except Exception:  # pragma: no cover
     DND_FILES = TkinterDnD = None
     HAVE_DND = False
 
-APP_VERSION = "1.4.16"
+APP_VERSION = "1.4.17"
 
 # Where the "support the author" button leads. Leave empty to hide the button until a page exists.
 DONATE_URL = ""
+REPO_URL = "https://github.com/BraigDun11/shadowplay-track-splitter"
 
 # palette taken from the design mock-ups
 GREEN = "#55D900"
@@ -46,6 +47,9 @@ WHITE = "#FFFFFF"
 GRAY = "#9A9A9A"
 DIM = "#5A5A5A"
 RED = "#FF6B6B"
+
+# the GitHub mark (octicon, MIT licence) as an outline in a 16 x 16 box
+GH_PTS = [8, 0, 9.6, 0.2, 11.1, 0.6, 12.5, 1.4, 13.7, 2.3, 14.6, 3.5, 15.4, 4.9, 15.8, 6.4, 16, 8, 16, 8.8, 15.8, 9.7, 15.6, 10.4, 15.3, 11.2, 14.9, 12, 14.5, 12.7, 14, 13.3, 13.4, 13.9, 12.8, 14.4, 12.1, 14.9, 11.3, 15.3, 10.6, 15.6, 10.4, 15.6, 10.3, 15.6, 10.2, 15.6, 10.1, 15.5, 10.1, 15.4, 10, 15.4, 10, 15.3, 10, 15.2, 10, 15.1, 10, 14.9, 10, 14.7, 10, 14.4, 10, 14.1, 10, 13.8, 10, 13.4, 10, 13, 10, 12.7, 10, 12.5, 9.9, 12.3, 9.8, 12.1, 9.8, 11.9, 9.7, 11.8, 9.6, 11.6, 9.5, 11.5, 10.1, 11.4, 10.8, 11.3, 11.4, 11, 12, 10.6, 12.4, 10.1, 12.8, 9.5, 13, 8.6, 13.1, 7.6, 13.1, 7.3, 13.1, 7, 13, 6.7, 12.9, 6.4, 12.8, 6.1, 12.6, 5.9, 12.5, 5.7, 12.3, 5.4, 12.3, 5.3, 12.4, 5.2, 12.4, 5, 12.4, 4.7, 12.5, 4.4, 12.4, 4.1, 12.3, 3.7, 12.2, 3.3, 12.2, 3.3, 12.1, 3.3, 11.9, 3.3, 11.7, 3.3, 11.4, 3.4, 11, 3.6, 10.6, 3.8, 10, 4.1, 9.8, 4.1, 9.5, 4, 9.3, 4, 9, 3.9, 8.8, 3.9, 8.5, 3.9, 8.3, 3.9, 8, 3.9, 7.8, 3.9, 7.5, 3.9, 7.3, 3.9, 7, 3.9, 6.8, 4, 6.5, 4, 6.3, 4.1, 6, 4.1, 5.5, 3.8, 5, 3.6, 4.7, 3.4, 4.3, 3.3, 4.1, 3.3, 4, 3.3, 3.9, 3.3, 3.8, 3.3, 3.7, 3.7, 3.6, 4.1, 3.6, 4.4, 3.6, 4.7, 3.6, 5, 3.7, 5.2, 3.7, 5.3, 3.7, 5.4, 3.6, 5.7, 3.4, 5.9, 3.3, 6.1, 3.1, 6.4, 3, 6.7, 3, 7, 2.9, 7.3, 2.9, 7.6, 3, 8.6, 3.2, 9.5, 3.6, 10.1, 4.1, 10.6, 4.6, 11, 5.2, 11.3, 5.9, 11.4, 6.6, 11.5, 6.5, 11.6, 6.4, 11.7, 6.3, 11.8, 6.2, 11.9, 6.2, 12.1, 6.1, 12.2, 6.1, 12.4, 6, 12.6, 5.8, 12.7, 5.6, 12.8, 5.3, 12.8, 5, 12.8, 4.7, 12.7, 4.3, 12.6, 4, 12.3, 3.7, 11.9, 3.6, 11.8, 3.5, 11.7, 3.4, 11.6, 3.3, 11.4, 3.1, 11.3, 2.9, 11.2, 2.7, 11.1, 2.5, 11.1, 2.3, 11.1, 2.2, 11.2, 2.1, 11.2, 2.1, 11.3, 2.2, 11.4, 2.3, 11.5, 2.4, 11.6, 2.5, 11.7, 2.6, 11.7, 2.8, 11.9, 2.9, 12, 3, 12.2, 3.1, 12.4, 3.2, 12.5, 3.3, 12.7, 3.3, 12.8, 3.4, 13, 3.5, 13.2, 3.7, 13.4, 4, 13.6, 4.3, 13.7, 4.8, 13.8, 5.3, 13.8, 6, 13.7, 6, 14, 6, 14.2, 6, 14.4, 6, 14.6, 6, 14.8, 6, 15, 6, 15.1, 6, 15.2, 6, 15.3, 6, 15.4, 6, 15.4, 5.9, 15.5, 5.8, 15.6, 5.7, 15.6, 5.6, 15.6, 5.5, 15.6, 4.7, 15.3, 4, 14.9, 3.3, 14.4, 2.6, 13.9, 2, 13.3, 1.5, 12.7, 1.1, 12, 0.7, 11.2, 0.4, 10.5, 0.2, 9.7, 0, 8.8, -0, 8, 0.2, 6.4, 0.6, 4.9, 1.4, 3.5, 2.3, 2.3, 3.5, 1.4, 4.9, 0.6, 6.4, 0.2, 8, 0]
 
 W, H = 780, 700            # client size at 100 % scaling
 
@@ -70,7 +74,7 @@ UI = {
              "(the button after the work); send it to the author together with the file *_features.npz - that is how "
              "such cases get fixed."),
         ],
-        "about_footer": "Author: BraigDun11  -  github.com/BraigDun11/shadowplay-track-splitter",
+        "about_footer": "Author: kevin (BraigDun11)  ·  together with kloudi",
         "drop": "Drop a video here or click to choose",
         "modes": ["Split mixed audio tracks", "Extract audio tracks from a normal video"],
         "swap": "Swap the audio tracks",
@@ -163,7 +167,7 @@ UI = {
              "отчётов (кнопка после работы); пришлите его автору вместе с файлом *_features.npz — так такие "
              "случаи исправляются."),
         ],
-        "about_footer": "Автор: BraigDun11  -  github.com/BraigDun11/shadowplay-track-splitter",
+        "about_footer": "Автор: kevin (BraigDun11)  ·  совместно с kloudi",
         "drop": "Перетащи или нажми, чтобы выбрать",
         "modes": ["Разделить смешанные аудиодорожки", "Достать аудиодорожки из обычного видео"],
         "swap": "Поменять аудиодорожки местами",
@@ -586,6 +590,13 @@ class App:
         if not working:
             self.add_hit(20, 8, 64, 52, self.open_about, "help")
 
+    def github_mark(self, cx, cy, size, color):
+        k = size / 16.0
+        pts = []
+        for i in range(0, len(GH_PTS), 2):
+            pts += [self.S(cx + (GH_PTS[i] - 8) * k), self.S(cy + (GH_PTS[i + 1] - 8) * k)]
+        self.cv.create_polygon(pts, fill=color, outline=color)
+
     def open_about(self):
         self.about_open = True
         self.menu = None
@@ -623,9 +634,10 @@ class App:
             for k, ln in enumerate(lines):
                 self.text(134, y + 24 + 22 + lh * k, ln, self.f_tiny, WHITE, "w")
             y += h + 10
-        self.text(390, H - 78, t["about_footer"], self.f_tiny, GRAY, "center")
-        self.text(390, H - 58, t["ffmpeg_ok"] % APP_VERSION, self.f_tiny, DIM, "center")
-        self.add_hit(190, H - 90, 590, H - 68, lambda: webbrowser.open("https://github.com/BraigDun11/shadowplay-track-splitter"), "gh")
+        self.text(390, H - 108, t["about_footer"], self.f_tiny, GRAY, "center")
+        self.github_mark(390, H - 82, 26, WHITE if self.hovered("gh") else GRAY)
+        self.add_hit(364, H - 96, 416, H - 68, lambda: webbrowser.open(REPO_URL), "gh")
+        self.text(390, H - 56, t["ffmpeg_ok"] % APP_VERSION, self.f_tiny, DIM, "center")
         hi = self.hovered("close")
         self.rrect(260, H - 44, 520, H - 10, 17, "#6BF000" if hi else GREEN)
         self.text(390, H - 27, t["close"], self.f_med, WHITE, "center")
