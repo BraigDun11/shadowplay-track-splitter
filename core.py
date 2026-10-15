@@ -291,7 +291,7 @@ def free_bytes(path):
 MB = 1024 * 1024
 
 
-def needed_space(video, streams, mode, stream=0, keep=-1, save_tracks=(), save_audio=False):
+def needed_space(video, streams, mode, stream=0, keep=-1, save_tracks=(), save_audio=False, audio_only=False):
     """Rough number of bytes the job needs in the output folder (a bit more than is really used).
     mode 'repair': new video + two tracks (+ temporary copies) ; 'extract': new video + saved audio files."""
     try:
@@ -299,7 +299,10 @@ def needed_space(video, streams, mode, stream=0, keep=-1, save_tracks=(), save_a
     except OSError:
         return 0
     audio = {s["index"]: s.get("mb", 0.0) * MB for s in streams}
-    if mode == "repair":
+    if mode == "repair" and audio_only:
+        a = audio.get(stream) or total * 0.5
+        need = a * 3
+    elif mode == "repair":
         a = audio.get(stream) or total * 0.5
         need = (total - a) + a * (3 + (1 if save_audio else 0))
     else:
@@ -311,6 +314,71 @@ def needed_space(video, streams, mode, stream=0, keep=-1, save_tracks=(), save_a
 
 
 # ----------------------------------------------------------------- ffmpeg
+FFMPEG_URLS = [
+    "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
+    "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip",
+]
+
+
+def ffmpeg_dir():
+    """Where the program keeps the ffmpeg it downloaded itself: Documents/ShadowPlay Track Splitter/ffmpeg."""
+    return os.path.join(documents_dir(), "ShadowPlay Track Splitter", "ffmpeg")
+
+
+def download_ffmpeg(progress=None, urls=None, cancelled=None):
+    """Download a Windows ffmpeg build and unpack ffmpeg.exe (and ffprobe.exe) into ffmpeg_dir().
+    Returns the path of ffmpeg.exe or raises OSError/ValueError (all addresses failed)."""
+    import urllib.request
+    import zipfile
+    if os.name != "nt":
+        raise OSError("automatic download is only available on Windows")
+    dest = ffmpeg_dir()
+    os.makedirs(dest, exist_ok=True)
+    last = None
+    for url in (urls or FFMPEG_URLS):
+        tmp = os.path.join(dest, "download.zip.part")
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "ShadowPlayTrackSplitter"})
+            with urllib.request.urlopen(req, timeout=30) as r, open(tmp, "wb") as f:
+                total = int(r.headers.get("Content-Length") or 0)
+                got = 0
+                while True:
+                    if cancelled and cancelled():
+                        raise OSError("cancelled")
+                    chunk = r.read(1 << 18)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    got += len(chunk)
+                    if progress and total:
+                        progress(min(0.95, 0.95 * got / total))
+            found = {}
+            with zipfile.ZipFile(tmp) as z:
+                for name in z.namelist():
+                    base = name.replace("\\", "/").split("/")
+                    if len(base) >= 2 and base[-2] == "bin" and base[-1] in ("ffmpeg.exe", "ffprobe.exe"):
+                        out = os.path.join(dest, base[-1])
+                        with z.open(name) as src, open(out + ".part", "wb") as dst:
+                            shutil.copyfileobj(src, dst)
+                        found[base[-1]] = out
+            if "ffmpeg.exe" not in found:
+                raise ValueError("ffmpeg.exe not found in the archive")
+            for n_, out in found.items():
+                os.replace(out + ".part", out)
+            if progress:
+                progress(1.0)
+            return found["ffmpeg.exe"]
+        except Exception as ex:
+            last = ex
+        finally:
+            for f_ in (tmp, ):
+                try:
+                    os.remove(f_)
+                except OSError:
+                    pass
+    raise OSError(str(last))
+
+
 def _candidates(extra=None):
     here = os.path.dirname(os.path.abspath(sys.argv[0] if getattr(sys, "frozen", False) else __file__))
     names = ["ffmpeg.exe", "ffmpeg"] if os.name == "nt" else ["ffmpeg"]
@@ -320,6 +388,8 @@ def _candidates(extra=None):
     for n in names:
         out.append(os.path.join(here, n))
     out.append("ffmpeg")
+    for n in names:
+        out.append(os.path.join(ffmpeg_dir(), n))
     if os.name == "nt":
         out += [r"C:\Program Files (x86)\ffmpeg\bin\ffmpeg.exe",
                 r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
@@ -781,7 +851,7 @@ def extract_tracks(video, ffmpeg=None, keep=0, save_others=True, save_kept=False
 # ------------------------------------------------------------------ main
 def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_scale=1.0,
             save_features=True, log=print, progress=None, lang="en", save_audio_files=True,
-            audio_which="both", out_dir=None):
+            audio_which="both", out_dir=None, audio_only=False):
     """Split the interleaved audio of `video`. Returns a dict with output paths."""
     M = MSG.get(lang, MSG["en"])
 
@@ -893,6 +963,26 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
         say("dur", a=dur_a / 60, b=dur_b / 60)
         if progress:
             progress(0.8)
+
+        if audio_only:                                # no video file: just the two audio tracks
+            ma, mb = fa.replace(".aac", ".m4a"), fb.replace(".aac", ".m4a")
+            want = {fa: audio_which in ("both", "pc"), fb: audio_which in ("both", "mic")}
+            for f in (fa, fb):
+                if want[f]:
+                    r = _run([ff, "-y", "-v", "error", "-i", f, "-c", "copy", "-bsf:a", "aac_adtstoasc",
+                              f.replace(".aac", ".m4a")], text=True)
+                    if r.returncode != 0:
+                        raise SplitError(M["nospace"] if "No space left" in (r.stderr or "")
+                                         else M["e_mux"].format(a=fa, b=fb))
+                os.remove(f)
+            ma = ma if want[fa] else None
+            mb = mb if want[fb] else None
+            if progress:
+                progress(1.0)
+            say("done3", files=", ".join(x for x in (ma, mb) if x))
+            ok = True
+            return {"video": None, "pc": ma, "mic": mb, "listen": [], "audio_min": max(dur_a, dur_b) / 60,
+                    "video_min": None}
 
         scale = video_scale
         vr = _run([ff, "-i", video, "-map", "0:v:0", "-c", "copy", "-f", "null", "-"], text=True)

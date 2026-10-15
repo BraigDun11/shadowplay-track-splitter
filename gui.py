@@ -31,7 +31,7 @@ except Exception:  # pragma: no cover
     DND_FILES = TkinterDnD = None
     HAVE_DND = False
 
-APP_VERSION = "1.4.18"
+APP_VERSION = "1.4.19"
 
 # Where the "support the author" button leads. Leave empty to hide the button until a page exists.
 DONATE_URL = ""
@@ -74,12 +74,13 @@ UI = {
              "(the button after the work); send it to the author together with the file *_features.npz - that is how "
              "such cases get fixed."),
         ],
-        "about_footer": "Author: kevin (BraigDun11)  ·  together with kloudi",
+        "about_footer": "Author: kevin  ·  together with kloudi",
         "drop": "Drop a video here or click to choose",
         "modes": ["Split mixed audio tracks", "Extract audio tracks from a normal video"],
         "swap": "Swap the audio tracks",
         "stretch": "Stretch video to the audio length",
         "save": "Save audio tracks as separate files",
+        "only_audio": "Audio only - no video file (saves disk space)",
         "video_sound": "Sound in the video",
         "no_audio": "No sound",
         "all": "All",
@@ -139,6 +140,10 @@ UI = {
         "ffmpeg_title": "ffmpeg",
         "ffmpeg_installed": "Installed",
         "ffmpeg_missing": "Not found - it is needed to work with video",
+        "ff_down": "Downloading ffmpeg... {p}%",
+        "ff_dl": "Download",
+        "ff_fail": "Could not download ffmpeg automatically ({e}). Download it from https://www.gyan.dev/ffmpeg/builds/ "
+                   "(essentials) and choose ffmpeg.exe in the settings.",
         "choose": "Choose...",
         "close": "Done",
         "audio_only": "Audio only",
@@ -167,12 +172,13 @@ UI = {
              "отчётов (кнопка после работы); пришлите его автору вместе с файлом *_features.npz — так такие "
              "случаи исправляются."),
         ],
-        "about_footer": "Автор: kevin (BraigDun11)  ·  совместно с kloudi",
+        "about_footer": "Автор: kevin  ·  совместно с kloudi",
         "drop": "Перетащи или нажми, чтобы выбрать",
         "modes": ["Разделить смешанные аудиодорожки", "Достать аудиодорожки из обычного видео"],
         "swap": "Поменять аудиодорожки местами",
         "stretch": "Растянуть видео под длину звука",
         "save": "Сохранить аудиодорожки отдельными файлами",
+        "only_audio": "Только аудио - без видеофайла (экономит место)",
         "video_sound": "Звук в видео",
         "no_audio": "Без звука",
         "all": "Все",
@@ -232,6 +238,10 @@ UI = {
         "ffmpeg_title": "ffmpeg",
         "ffmpeg_installed": "Установлен",
         "ffmpeg_missing": "Не найден - он нужен для работы с видео",
+        "ff_down": "Скачиваю ffmpeg... {p}%",
+        "ff_dl": "Скачать",
+        "ff_fail": "Не удалось скачать ffmpeg автоматически ({e}). Скачайте его на https://www.gyan.dev/ffmpeg/builds/ "
+                   "(essentials) и укажите ffmpeg.exe в настройках.",
         "choose": "Указать...",
         "close": "Готово",
         "audio_only": "Только звук",
@@ -259,6 +269,8 @@ class App:
         self.upd = None                     # available update (dict) or None
         self.upd_state = "idle"            # idle / checking / down / fail
         self.upd_pct = 0
+        self.ff_state = "idle"             # idle / down / fail
+        self.ff_pct = 0.0
         updater.cleanup_old()
         self.ffmpeg = core.find_ffmpeg(self.cfg.get("ffmpeg")) or core.find_ffmpeg()
         self.settings_open = False
@@ -294,6 +306,7 @@ class App:
         self.swap = False
         self.stretch = True
         self.save = False
+        self.audio_only = False
         self.save_choice = 0                # repair: 0 both / 1 PC / 2 mic ; extract: 0 all / i = track i
         self.keep_idx = 0                   # extract: 0 = no sound, i = track i stays in the video
         self.progress = 0.0
@@ -311,6 +324,8 @@ class App:
         self.root.after(150, self.paint_title_bar)
         self.root.after(100, self.poll)
         self.root.after(1500, self.check_update)
+        if not self.ffmpeg:
+            self.root.after(800, self.download_ffmpeg)
         if preset:
             self.set_video(preset)
 
@@ -487,8 +502,12 @@ class App:
         y = 360
         if self.mode == 0:
             self.checkbox(110, y, t["swap"], self.swap, lambda: self.toggle("swap"), "swap", ok)
-            self.checkbox(110, y + 40, t["stretch"], self.stretch, lambda: self.toggle("stretch"), "stretch", ok)
-            self.checkbox(110, y + 80, t["save"], self.save, lambda: self.toggle("save"), "save", ok)
+            self.checkbox(110, y + 40, t["stretch"], self.stretch, lambda: self.toggle("stretch"), "stretch",
+                          ok and not self.audio_only)
+            self.checkbox(110, y + 80, t["save"], self.save or self.audio_only, lambda: self.toggle("save"),
+                          "save", ok and not self.audio_only)
+            self.checkbox(110, y + 120, t["only_audio"], self.audio_only, lambda: self.toggle("audio_only"),
+                          "audio_only", ok)
             if ok:
                 items = [t["all"], t["pc"], t["mic"]]
                 self.dropdown(670, y + 80, items[self.save_choice], items, self.save_choice, self.set_save_choice,
@@ -518,7 +537,7 @@ class App:
 
     def render_bottom(self, working):
         t = self.t
-        y0 = 460 if self.mode == 1 else 500
+        y0 = 460 if self.mode == 1 else 520
         self.start_y = y0
         if working:
             stopping = core.CANCEL.is_set()
@@ -550,6 +569,8 @@ class App:
     def render_ffmpeg(self):
         if self.ffmpeg:
             self.text(390, H - 16, self.t["ffmpeg_ok"] % APP_VERSION, self.f_tiny, DIM, "center")
+        elif self.ff_state == "down":
+            self.text(390, H - 16, self.t["ff_down"].format(p=int(self.ff_pct * 100)), self.f_tiny, WHITE, "center")
         else:
             self.text(390, H - 16, self.t["ffmpeg_no"], self.f_tiny, RED, "center")
             self.add_hit(150, H - 30, 630, H, self.pick_ffmpeg, "ffmpeg")
@@ -800,8 +821,12 @@ class App:
             self.text(134, 304, t["ffmpeg_installed"], self.f_med, GREEN, "w")
             shown = self.ffmpeg if os.path.isabs(self.ffmpeg) else (shutil.which(self.ffmpeg) or self.ffmpeg)
             self.text(134, 330, self.fit(shown, self.f_tiny, 400), self.f_tiny, GRAY, "w")
+        elif self.ff_state == "down":
+            self.text(134, 304, t["ff_down"].format(p=int(self.ff_pct * 100)), self.f_med, WHITE, "w")
         else:
             self.text(134, 304, self.fit(t["ffmpeg_missing"], self.f_med, 400), self.f_med, RED, "w")
+        if not self.ffmpeg and self.ff_state != "down" and os.name == "nt":
+            self.pill(440, 290, 540, 322, t["ff_dl"], self.download_ffmpeg, "ffdl", fill=GREEN, font=self.f_small)
         self.pill(550, 290, 650, 322, t["choose"], self.choose_ffmpeg, "ffm", fill=BG, font=self.f_small)
         # update
         self.rrect(110, 364, 670, 446, 24, PANEL)
@@ -998,6 +1023,21 @@ class App:
             self.thumb = None
         self.render()
 
+    def download_ffmpeg(self):
+        if self.ffmpeg or self.ff_state == "down" or os.name != "nt":
+            return
+        self.ff_state, self.ff_pct = "down", 0.0
+        self.render()
+
+        def job():
+            try:
+                path = core.download_ffmpeg(progress=lambda f: self.q.put(("ff_pct", f)))
+                self.q.put(("ff_done", path))
+            except Exception as ex:
+                self.q.put(("ff_err", str(ex)))
+
+        threading.Thread(target=job, daemon=True).start()
+
     def pick_ffmpeg(self):
         self.open_settings()
 
@@ -1036,7 +1076,8 @@ class App:
             return
         opts = dict(mode=self.mode, video=self.video, ffmpeg=self.ffmpeg)
         if self.mode == 0:
-            opts.update(swap=self.swap, stretch=self.stretch, save=self.save,
+            opts.update(swap=self.swap, stretch=self.stretch, save=self.save or self.audio_only,
+                        audio_only=self.audio_only,
                         which=["both", "pc", "mic"][min(self.save_choice, 2)])
         else:
             if n == 1:
@@ -1057,7 +1098,7 @@ class App:
         # enough room for the result?  (a full disk used to leave a half-written video)
         need = core.needed_space(self.video, self.streams, "repair" if self.mode == 0 else "extract",
                                  keep=opts.get("keep", -1), save_tracks=opts.get("save_tracks", ()),
-                                 save_audio=bool(opts.get("save")))
+                                 save_audio=bool(opts.get("save")), audio_only=bool(opts.get("audio_only")))
         free = core.free_bytes(out_dir)
         if free is not None and free < need:
             drive = os.path.splitdrive(os.path.abspath(out_dir))[0] or out_dir
@@ -1090,7 +1131,7 @@ class App:
             else:
                 res = core.process(o["video"], ffmpeg=o["ffmpeg"], swap=o["swap"], match_video=o["stretch"],
                                    log=log, progress=prog, lang=self.lang, save_audio_files=o["save"],
-                                   audio_which=o["which"], out_dir=o["out_dir"])
+                                   audio_which=o["which"], out_dir=o["out_dir"], audio_only=o["audio_only"])
                 self.q.put(("listen", (res or {}).get("listen") or []))
             self.q.put(("done", o["video"]))
         except core.Cancelled:
@@ -1136,6 +1177,21 @@ class App:
                     res, err = val
                     self.upd = res
                     self.upd_state = "fail" if err and not res else "idle"
+                    dirty = True
+                elif kind == "ff_pct":
+                    self.ff_pct = float(val)
+                    dirty = True
+                elif kind == "ff_done":
+                    found = core.find_ffmpeg(val)
+                    self.ff_state = "idle" if found else "fail"
+                    if found:
+                        self.ffmpeg = found
+                        if self.video:
+                            self.set_video(self.video)
+                    dirty = True
+                elif kind == "ff_err":
+                    self.ff_state = "fail"
+                    messagebox.showerror(self.t["error"], self.t["ff_fail"].format(e=val))
                     dirty = True
                 elif kind == "upd_pct":
                     self.upd_pct = float(val)

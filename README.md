@@ -28,7 +28,8 @@ another; nothing is inserted or shifted. The result is the video with two audio 
 
 1. Download `ShadowPlayTrackSplitter.exe` from [Releases](../../releases).
 2. You need [ffmpeg](https://www.gyan.dev/ffmpeg/builds/) (essentials build). Put `ffmpeg.exe` next to the
-   program, or add it to PATH, or pick it in the window.
+   program, or add it to PATH, or pick it in the settings. If ffmpeg is not found, the program downloads it by itself
+   into `Documents\ShadowPlay Track Splitter\ffmpeg`.
 3. Run the program, choose the repaired video, press **Split tracks**.
 4. You get, next to the video: `*_fixed.mp4` (two audio tracks), `*_track1_PC.m4a`, `*_track2_MIC.m4a`
    and `*_report.txt`.
@@ -97,7 +98,7 @@ guessing every border separately. The strict schedule gives the rhythm, the real
 
 `build_exe.bat` (needs Python), or let GitHub Actions do it (`.github/workflows/build.yml`).
 
-License: MIT. Author: kevin ([BraigDun11](https://github.com/BraigDun11)). Developed together with kloudi (Claude, Anthropic's AI assistant).
+License: MIT. Author: kevin. Developed together with kloudi (Claude, Anthropic's AI assistant).
 
 ---
 
@@ -127,7 +128,8 @@ License: MIT. Author: kevin ([BraigDun11](https://github.com/BraigDun11)). Devel
 **Как пользоваться (Windows).**
 1. Скачайте `ShadowPlayTrackSplitter.exe` в разделе [Releases](../../releases).
 2. Нужен [ffmpeg](https://www.gyan.dev/ffmpeg/builds/) (сборка essentials): положите `ffmpeg.exe` рядом с
-   программой, добавьте в PATH или выберите кнопкой в окне.
+   программой, добавьте в PATH или выберите в настройках. Если ffmpeg не найден, программа скачает его сама в
+   `Документы\ShadowPlay Track Splitter\ffmpeg`.
 3. Запустите, выберите восстановленное видео, нажмите **«Разделить дорожки»**.
 4. Рядом с видео появятся `*_fixed.mp4` (две дорожки), `*_track1_PC.m4a`, `*_track2_MIC.m4a`, `*_report.txt`.
 
@@ -141,7 +143,7 @@ License: MIT. Author: kevin ([BraigDun11](https://github.com/BraigDun11)). Devel
 Если ПК и микрофон оказались наоборот, включите **«Поменять дорожки местами»**. Если звук всё сильнее
 отстаёт от картинки к концу, включите **«Растянуть видео под длину звука»**.
 
-**Автор:** kevin ([BraigDun11](https://github.com/BraigDun11)), разработано совместно с kloudi (Claude, ИИ-ассистент Anthropic).
+**Автор:** kevin, разработано совместно с kloudi (Claude, ИИ-ассистент Anthropic).
 
 **Статус.** Проверено на одной реальной записи и на синтетических тестах. На других записях расписание может
 быть иным: если что-то не так, создайте issue и приложите `*_report.txt` (и `*_features.npz`, если запускали

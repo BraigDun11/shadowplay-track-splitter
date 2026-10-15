@@ -135,11 +135,23 @@ def apply_update(new_path, exe=None):
     return exe
 
 
+def clean_env():
+    """Environment for the new process.  A PyInstaller one-file exe unpacks itself into a temp folder and
+    tells every child through environment variables to reuse that folder; the old process deletes it when
+    it quits, and the new exe then fails ('Unable to load tkdnd library').  So these variables go away."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("_PYI") and k != "_MEIPASS2"}
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    return env
+
+
 def start(exe):
-    flags = 0
+    """Start the new exe a moment after this process has quit (so the old unpacked folder is gone)."""
     if os.name == "nt":
-        flags = 0x00000008 | 0x00000200      # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
-    subprocess.Popen([exe], close_fds=True, creationflags=flags)
+        flags = 0x00000008 | 0x00000200 | 0x08000000     # DETACHED_PROCESS | NEW_PROCESS_GROUP | NO_WINDOW
+        cmd = 'ping 127.0.0.1 -n 3 >nul & start "" "%s"' % exe
+        subprocess.Popen(["cmd.exe", "/c", cmd], close_fds=True, creationflags=flags, env=clean_env())
+    else:
+        subprocess.Popen([exe], close_fds=True, env=clean_env())
 
 
 def cleanup_old():

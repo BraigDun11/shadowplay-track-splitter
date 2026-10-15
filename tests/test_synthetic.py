@@ -110,6 +110,10 @@ def main():
     r6 = core.process(video, out_dir=od, lang="en")
     assert os.path.dirname(r6["video"]) == od and os.path.exists(r6["video"]), r6
     assert not [f for f in os.listdir(od) if f.startswith("_raw_")], os.listdir(od)
+    # audio only: no video file, just the two tracks
+    r7 = core.process(video, out_dir=os.path.join(tmp, "audio"), lang="en", audio_only=True)
+    assert r7["video"] is None and os.path.exists(r7["pc"]) and os.path.exists(r7["mic"]), r7
+    assert not [f for f in os.listdir(os.path.dirname(r7["pc"])) if f.endswith((".aac", ".mp4")) or f.startswith("_raw_")]
     assert core.needed_space(video, core.probe_audio(core.find_ffmpeg(), video), "repair") > os.path.getsize(video)
     assert core.free_bytes(os.path.join(od, "not", "yet", "there")) > 0
     print("EXTRACT OK")
