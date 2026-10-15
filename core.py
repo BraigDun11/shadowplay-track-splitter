@@ -546,7 +546,8 @@ def _period_from(mono, need):
 # What each packet "says" about the track it belongs to (s: L-R difference, m: loudness).
 # PC sound is normally real stereo (s large); the microphone is dual-mono (s about 0.44, plus its
 # own noise floor); digital silence has s about 0.34 and says nothing.
-MONO_PC = 0.05          # fewer stereo packets than this: the PC sound is (nearly) mono as well
+MONO_PC = 0.05
+SPARSE_STEREO = 0.15    # below this share of stereo packets the sound levels of PC and microphone must be used as evidence         
 PC_MONO_S = 0.36        # mono PC sound has s of about 0.3 ...
 MIC_S = 0.41            # ... the microphone about 0.44
 PRIOR_W = 0.15          # weight of the coarse labelling when the signal is weak
@@ -560,7 +561,7 @@ def find_schedule(s, m):
     if stereo:
         r = _period_from(s < 0.5, 20) or _period_from((s < 0.5) & (m >= 1), 12)
         if r:
-            return r[0], r[1], False
+            return r[0], r[1], float(np.mean(s > 1.0)) < SPARSE_STEREO
     q = ((s >= 0.40) & (s < 0.5)).astype(np.int8)                  # microphone-like packet
     sm = (np.convolve(q, np.ones(5), "same") >= 3).astype(np.int8)  # remove isolated outliers
     r = _period_from(sm, 20)
@@ -618,7 +619,7 @@ def segment_labels(s, m, P, Lm, mono_pc=False, prior=None, lmin=8, progress=None
     nothing (silence) the nominal rhythm simply goes on."""
     n = len(s)
     nom = {1: P - Lm, 0: Lm}
-    lam, jump = (2.0, 30.0) if mono_pc else (0.5, 10.0)
+    lam, jump = (1.0, 20.0) if mono_pc else (0.5, 10.0)
     stereo_rich = float(np.mean(s > 1.0)) >= STEREO_RICH
     e = np.zeros(n)
     e[s > 1.0] = 1.0                                   # stereo: PC
@@ -909,7 +910,9 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             say("mismatch", a=len(s), b=len(frames))
         n = min(len(s), len(frames))
         s, m = s[:n], m[:n]
-        feat = os.path.join(reports_dir(), os.path.basename(base) + "_features.npz")
+        rd_, bn_ = reports_dir(), os.path.basename(base)
+        fsuf = unique_suffix(["{d}/{b}_features{n}.npz"], d=rd_, b=bn_)      # never overwrite an earlier run
+        feat = os.path.join(rd_, "%s_features%s.npz" % (bn_, fsuf))
         if save_features:   # small diagnostic file; lets the schedule be analysed without the video
             np.savez_compressed(feat, s=s.astype(np.float16), m=m.astype(np.float16),
                                 L=np.array([ln for _, ln in frames], dtype=np.uint16),
