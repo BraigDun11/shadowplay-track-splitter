@@ -121,4 +121,10 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except BaseException:
+        import traceback
+        # shows up as an annotation of the run on GitHub
+        print("::error::" + traceback.format_exc().replace("%", "%25").replace("\r", "").replace("\n", "%0A"))
+        raise
