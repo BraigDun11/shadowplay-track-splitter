@@ -13,7 +13,8 @@ def main():
     ap.add_argument("--swap", action="store_true", help="swap PC / mic tracks")
     ap.add_argument("--match-video", action="store_true", help="stretch video timestamps to audio length")
     ap.add_argument("--video-scale", type=float, default=1.0, help="stretch video by this factor")
-    ap.add_argument("--save-features", action="store_true", help="save a diagnostic .npz file")
+    ap.add_argument("--no-save-features", action="store_true", help="do not save the diagnostic .npz file")
+    ap.add_argument("--audio-only", action="store_true", help="repair mode: write only the two audio files, no video")
     ap.add_argument("--ffmpeg", help="path to ffmpeg")
     ap.add_argument("--lang", choices=["en", "ru"], default=None)
     ap.add_argument("--extract", action="store_true",
@@ -33,7 +34,8 @@ def main():
                                 out_dir=a.out_dir)
             return
         core.process(a.video, a.ffmpeg, a.stream, a.swap, a.match_video, a.video_scale,
-                     True, print, None, lang, not a.no_save_audio, out_dir=a.out_dir)
+                     not a.no_save_features, print, None, lang, not a.no_save_audio or a.audio_only,
+                     out_dir=a.out_dir, audio_only=a.audio_only)
     except core.SplitError as e:
         sys.exit(str(e))
 

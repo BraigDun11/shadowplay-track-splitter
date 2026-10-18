@@ -31,7 +31,7 @@ except Exception:  # pragma: no cover
     DND_FILES = TkinterDnD = None
     HAVE_DND = False
 
-APP_VERSION = "1.4.20"
+APP_VERSION = "1.4.21"
 
 # Where the "support the author" button leads. Leave empty to hide the button until a page exists.
 DONATE_URL = ""
@@ -423,7 +423,6 @@ class App:
 
     def dropdown(self, right, cy, label, items, current, cb, key, h=30):
         """Pill with a chevron, right edge at `right`; the width follows the text."""
-        S = self.S
         w = int(self.f_small.measure(label) / self.k) + 54
         x1 = right - w
         self.pill(x1, cy - h / 2, right, cy + h / 2, label, lambda: self.open_menu(items, x1, cy + h / 2 + 4, w, cb),

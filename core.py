@@ -174,7 +174,6 @@ def documents_dir():
     if os.name == "nt":
         try:
             import ctypes
-            from ctypes import wintypes
 
             class GUID(ctypes.Structure):
                 _fields_ = [("a", ctypes.c_ulong), ("b", ctypes.c_ushort), ("c", ctypes.c_ushort),
@@ -568,6 +567,9 @@ def find_schedule(s, m):
     return (r[0], r[1], True) if r else None
 
 
+# NOTE on the name `mono_pc`: it is True whenever the PC sound has too few stereo packets to tell PC from the
+# microphone by stereo alone (almost always mono PC sound, or less than SPARSE_STEREO of stereo packets); the
+# sound levels (s, m) are then used as evidence as well.
 def lattice_labels(s, m, P, Lm, mono_pc=False, switch_cost=150.0, progress=None):
     """Coarse labelling: chunks follow a strict schedule of period P, rare phase shifts are allowed but
     expensive.  Robust where the signal is weak (quiet or mono-sounding passages), but the real chunk
@@ -931,7 +933,7 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
 
         est = find_schedule(s, m)
         if est is None:
-            raise SplitError(M["no_sched"].format(path=feat))
+            raise SplitError(M["no_sched"].format(path=feat if save_features else "-"))
         P, Lm, mono_pc = est
         say("sched", p=P, lm=Lm, ls=P - Lm)
         coarse = lattice_labels(s, m, P, Lm, mono_pc=mono_pc, progress=prog(0.45, 0.6))
