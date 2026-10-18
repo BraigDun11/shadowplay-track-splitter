@@ -141,17 +141,16 @@ def clean_env():
     it quits, and the new exe then fails ('Unable to load tkdnd library').  So these variables go away."""
     env = {k: v for k, v in os.environ.items() if not k.startswith("_PYI") and k != "_MEIPASS2"}
     env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    env["SPTS_AFTER_UPDATE"] = "1"       # the new copy waits until this (old) copy has really closed
     return env
 
 
 def start(exe):
-    """Start the new exe a moment after this process has quit (so the old unpacked folder is gone)."""
+    """Start the new exe (own temporary folder, see clean_env)."""
+    flags = 0
     if os.name == "nt":
-        flags = 0x00000008 | 0x00000200 | 0x08000000     # DETACHED_PROCESS | NEW_PROCESS_GROUP | NO_WINDOW
-        cmd = 'ping 127.0.0.1 -n 3 >nul & start "" "%s"' % exe
-        subprocess.Popen(["cmd.exe", "/c", cmd], close_fds=True, creationflags=flags, env=clean_env())
-    else:
-        subprocess.Popen([exe], close_fds=True, env=clean_env())
+        flags = 0x00000008 | 0x00000200      # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    subprocess.Popen([exe], close_fds=True, creationflags=flags, env=clean_env())
 
 
 def cleanup_old():

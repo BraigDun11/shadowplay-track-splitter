@@ -16,6 +16,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import webbrowser
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -31,7 +32,7 @@ except Exception:  # pragma: no cover
     DND_FILES = TkinterDnD = None
     HAVE_DND = False
 
-APP_VERSION = "1.4.21"
+APP_VERSION = "1.4.22"
 
 # Where the "support the author" button leads. Leave empty to hide the button until a page exists.
 DONATE_URL = ""
@@ -262,10 +263,10 @@ class App:
     # ------------------------------------------------------------ setup
     def __init__(self, root, preset=None):
         self.root = root
-        self.lang = core.detect_lang()
-        self.t = UI[self.lang]
         self.q = queue.Queue()
         self.cfg = core.load_settings()
+        self.lang = self.cfg.get("lang") if self.cfg.get("lang") in UI else core.detect_lang()
+        self.t = UI[self.lang]
         self.upd = None                     # available update (dict) or None
         self.upd_state = "idle"            # idle / checking / down / fail
         self.upd_pct = 0
@@ -796,9 +797,18 @@ class App:
                     self.set_video(self.video)
             self.render()
 
+    def toggle_lang(self):
+        self.lang = "en" if self.lang == "ru" else "ru"
+        self.t = UI[self.lang]
+        self.cfg["lang"] = self.lang
+        self.save_cfg()
+        self.render()
+
     def render_settings(self):
         t = self.t
         self.text(390, 52, t["settings"], self.f_big, WHITE, "center")
+        self.pill(540, 36, 670, 68, "Русский" if self.lang == "ru" else "English", self.toggle_lang, "lang",
+                  font=self.f_small)
         # output folder
         self.rrect(110, 96, 670, 236, 24, PANEL)
         self.text(134, 122, t["out_folder"], self.f_small, GRAY, "w")
@@ -1244,7 +1254,43 @@ class App:
         self.root.after(100, self.poll)
 
 
+_MUTEX = None
+
+
+def single_instance():
+    """True if this is the only running copy.  A second launch brings the window of the first one to the
+    front and quits.  (After a self-update the new copy starts while the old one is still closing: it waits.)"""
+    global _MUTEX
+    if os.name != "nt":
+        return True
+    try:
+        import ctypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.CreateMutexW.restype = ctypes.c_void_p
+        k32.CloseHandle.argtypes = [ctypes.c_void_p]
+        waits = 50 if os.environ.get("SPTS_AFTER_UPDATE") else 0       # up to 10 s
+        for i in range(waits + 1):
+            _MUTEX = k32.CreateMutexW(None, False, "ShadowPlayTrackSplitter_single_instance")
+            if ctypes.get_last_error() != 183:                           # 183 = already exists
+                return True
+            k32.CloseHandle(_MUTEX)
+            _MUTEX = None
+            if i < waits:
+                time.sleep(0.2)
+        u32 = ctypes.windll.user32
+        hwnd = u32.FindWindowW(None, "ShadowPlay Track Splitter")
+        if hwnd:
+            if u32.IsIconic(hwnd):
+                u32.ShowWindow(hwnd, 9)                                  # SW_RESTORE
+            u32.SetForegroundWindow(hwnd)
+        return False
+    except Exception:
+        return True
+
+
 def main():
+    if not single_instance():
+        return
     if os.name == "nt":
         try:  # crisp text on high-DPI screens
             import ctypes
