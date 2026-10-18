@@ -32,7 +32,7 @@ except Exception:  # pragma: no cover
     DND_FILES = TkinterDnD = None
     HAVE_DND = False
 
-APP_VERSION = "1.4.22"
+APP_VERSION = "1.4.23"
 
 # Where the "support the author" button leads. Leave empty to hide the button until a page exists.
 DONATE_URL = ""
@@ -284,7 +284,10 @@ class App:
         S = self.S
         root.title(self.t["title"])
         root.configure(bg=BG)
-        root.geometry("%dx%d" % (S(W), S(H)))
+        w_, h_ = S(W), S(H)
+        x_ = max(0, (root.winfo_screenwidth() - w_) // 2)
+        y_ = max(0, (root.winfo_screenheight() - h_) // 2 - S(20))           # centred on the screen
+        root.geometry("%dx%d+%d+%d" % (w_, h_, x_, y_))
         root.resizable(False, False)
         self.set_icon()
         self.f_big = tkfont.Font(family="Segoe UI", size=-S(17), weight="bold")
@@ -568,7 +571,7 @@ class App:
 
     def render_ffmpeg(self):
         if self.ffmpeg:
-            self.text(390, H - 16, self.t["ffmpeg_ok"] % APP_VERSION, self.f_tiny, DIM, "center")
+            pass                                      # (the version is shown on the About page only)
         elif self.ff_state == "down":
             self.text(390, H - 16, self.t["ff_down"].format(p=int(self.ff_pct * 100)), self.f_tiny, WHITE, "center")
         else:
@@ -1255,6 +1258,7 @@ class App:
 
 
 _MUTEX = None
+SHOW_EVENT = "ShadowPlayTrackSplitter_show_window"
 
 
 def single_instance():
@@ -1268,6 +1272,7 @@ def single_instance():
         k32 = ctypes.WinDLL("kernel32", use_last_error=True)
         k32.CreateMutexW.restype = ctypes.c_void_p
         k32.CloseHandle.argtypes = [ctypes.c_void_p]
+        k32.CreateEventW.restype = ctypes.c_void_p
         waits = 50 if os.environ.get("SPTS_AFTER_UPDATE") else 0       # up to 10 s
         for i in range(waits + 1):
             _MUTEX = k32.CreateMutexW(None, False, "ShadowPlayTrackSplitter_single_instance")
@@ -1277,15 +1282,41 @@ def single_instance():
             _MUTEX = None
             if i < waits:
                 time.sleep(0.2)
-        u32 = ctypes.windll.user32
-        hwnd = u32.FindWindowW(None, "ShadowPlay Track Splitter")
-        if hwnd:
-            if u32.IsIconic(hwnd):
-                u32.ShowWindow(hwnd, 9)                                  # SW_RESTORE
-            u32.SetForegroundWindow(hwnd)
+        ev = k32.CreateEventW(None, False, False, SHOW_EVENT)          # ask the running copy to show itself
+        if ev:
+            k32.SetEvent(ctypes.c_void_p(ev))
         return False
     except Exception:
         return True
+
+
+def watch_show_requests(root):
+    """Another launch of the program asks this one to come to the front (see single_instance)."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        k32.CreateEventW.restype = ctypes.c_void_p
+        k32.WaitForSingleObject.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+        ev = k32.CreateEventW(None, False, False, SHOW_EVENT)
+    except Exception:
+        return
+
+    def poll():
+        try:
+            if k32.WaitForSingleObject(ev, 0) == 0:
+                root.deiconify()
+                root.state("normal")
+                root.lift()
+                root.attributes("-topmost", True)
+                root.after(300, lambda: root.attributes("-topmost", False))
+                root.focus_force()
+        except Exception:
+            pass
+        root.after(300, poll)
+
+    poll()
 
 
 def main():
@@ -1300,6 +1331,7 @@ def main():
     root = TkinterDnD.Tk() if HAVE_DND else tk.Tk()
     preset = sys.argv[1] if len(sys.argv) > 1 and os.path.isfile(sys.argv[1]) else None
     App(root, preset)
+    watch_show_requests(root)
     root.mainloop()
 
 
