@@ -51,12 +51,10 @@ MSG = {
         "dur": "    track length: PC {a:.2f} min, mic {b:.2f} min",
         "vdur": "    video length (picture only): {v:.2f} min",
         "stretch": "    stretching video by x{s:.4f} to match audio",
-        "starts": "    Check of the finished file - stream start times (s): {v}",
+        "fit": "    {n} track: tempo changed by x{r:.4f} to match the video length (re-encoded)",
         "ev_head": "    Places worth listening to ({n}; time in the finished video):",
         "ev_shift": "the chunk schedule shifted (a chunk of {n} packets instead of {nom}): a click, a cut or swapped bits are possible",
-        "ev_silent": "the {n} track is completely silent for {d:.0f} s (muted or lost sound)",
         "ev_vgap": "the video has a hole here: {g:.1f} s of picture missing",
-        "silent": "    Check of the finished file: the {n} track is completely silent for {d:.0f} s from {t}",
         "vgaps": "    The video itself has {n} hole(s) in its timeline (missing frames, {tot:.1f} min in total) - these are the places where it lags behind the sound:",
         "vgap": "      at {t} (video time): {g:.1f} s of picture missing",
         "vgaps0": "    The video timeline has no holes ({n} frames, {f:.1f} fps = {e:.1f} min). The missing picture time is not marked in the file, so its position cannot be found.",
@@ -104,12 +102,10 @@ MSG = {
         "dur": "    длина дорожек: ПК {a:.2f} мин, микрофон {b:.2f} мин",
         "vdur": "    длина видео (только картинка): {v:.2f} мин",
         "stretch": "    растягиваю видео в {s:.4f} раза, чтобы совпало со звуком",
-        "starts": "    Проверка готового файла - начало потоков (с): {v}",
+        "fit": "    дорожка {n}: темп изменён в {r:.4f} раза, чтобы совпало с длиной видео (перекодирование)",
         "ev_head": "    Места, которые стоит прослушать ({n}; время в готовом видео):",
         "ev_shift": "расписание кусков сдвинулось (кусок из {n} пакетов вместо {nom}): возможны щелчок, обрыв или перепутанные кусочки",
-        "ev_silent": "дорожка {n} полностью беззвучна {d:.0f} с (выключен микрофон или потерян звук)",
         "ev_vgap": "в видео здесь дыра: не хватает {g:.1f} с картинки",
-        "silent": "    Проверка готового файла: дорожка {n} полностью беззвучна {d:.0f} с, начиная с {t}",
         "vgaps": "    В самом видео есть дыры во временной шкале: {n} шт. (не хватает кадров, всего {tot:.1f} мин). Именно в этих местах картинка отстаёт от звука:",
         "vgap": "      около {t} (время видео): не хватает {g:.1f} с картинки",
         "vgaps0": "    Дыр во временной шкале видео нет ({n} кадров, {f:.1f} кадр/с = {e:.1f} мин). Недостающее время картинки в файле не отмечено, поэтому найти место нельзя.",
@@ -378,6 +374,40 @@ def download_ffmpeg(progress=None, urls=None, cancelled=None):
     raise OSError(str(last))
 
 
+FFMPEG_LATEST_URL = "https://www.gyan.dev/ffmpeg/builds/release-version"
+
+
+def ffmpeg_version(path):
+    """Version of an ffmpeg executable as a tuple, e.g. (7, 1, 1); None if it cannot be told."""
+    try:
+        r = subprocess.run([path, "-version"], capture_output=True, text=True, creationflags=NO_WINDOW)
+        m_ = re.match(r"ffmpeg version n?(\d+(?:\.\d+){0,2})", r.stdout or "")
+        return tuple(int(x) for x in m_.group(1).split(".")) if m_ else None
+    except Exception:
+        return None
+
+
+def latest_ffmpeg_version(timeout=8):
+    """Newest release version of ffmpeg for Windows as a tuple (gyan.dev); None when offline."""
+    import urllib.request
+    try:
+        req = urllib.request.Request(FFMPEG_LATEST_URL, headers={"User-Agent": "ShadowPlayTrackSplitter"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            txt = r.read(64).decode("ascii", "ignore").strip()
+        m_ = re.match(r"(\d+(?:\.\d+){0,2})", txt)
+        return tuple(int(x) for x in m_.group(1).split(".")) if m_ else None
+    except Exception:
+        return None
+
+
+def is_own_ffmpeg(path):
+    """True for the copy the program downloaded itself (only that one is ever updated automatically)."""
+    try:
+        return os.path.normcase(os.path.abspath(path)).startswith(os.path.normcase(os.path.abspath(ffmpeg_dir())))
+    except Exception:
+        return False
+
+
 def _candidates(extra=None):
     here = os.path.dirname(os.path.abspath(sys.argv[0] if getattr(sys, "frozen", False) else __file__))
     names = ["ffmpeg.exe", "ffmpeg"] if os.name == "nt" else ["ffmpeg"]
@@ -436,32 +466,6 @@ def video_gaps(ffmpeg, video):
         big = np.where(dt > max(3 * med, 0.2))[0]
         return len(t), 1.0 / med, [(float(t[i]), float(dt[i] - med)) for i in big]
     return None
-
-
-def check_output(ffmpeg, path):
-    """Post-check of the finished video: where each audio track is silent for 5 s or longer and
-    where each stream starts. Returns a list of report lines (keys for MSG) - never raises."""
-    res = {"starts": None, "silent": {0: [], 1: []}}
-    try:
-        d = os.path.dirname(ffmpeg)
-        for c in (os.path.join(d, "ffprobe.exe"), os.path.join(d, "ffprobe"), "ffprobe"):
-            try:
-                r = _run([c, "-v", "error", "-show_entries", "stream=codec_type,start_time",
-                          "-of", "csv=p=0", path], text=True)
-            except OSError:
-                continue
-            if r.returncode == 0:
-                res["starts"] = [ln.split(",") for ln in (r.stdout or "").split()]
-                break
-        for i in (0, 1):
-            r = _run([ffmpeg, "-hide_banner", "-i", path, "-map", "0:a:%d" % i, "-af",
-                      "silencedetect=noise=-80dB:d=5", "-f", "null", "-"], text=True)
-            st = [float(x) for x in re.findall(r"silence_start: (-?[\d.]+)", r.stderr or "")]
-            du = [float(x) for x in re.findall(r"silence_duration: ([\d.]+)", r.stderr or "")]
-            res["silent"][i] = list(zip(st, du))
-    except Exception:
-        return None
-    return res
 
 
 def _run(cmd, **kw):
@@ -854,7 +858,7 @@ def extract_tracks(video, ffmpeg=None, keep=0, save_others=True, save_kept=False
 # ------------------------------------------------------------------ main
 def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_scale=1.0,
             save_features=True, log=print, progress=None, lang="en", save_audio_files=True,
-            audio_which="both", out_dir=None, audio_only=False):
+            audio_which="both", out_dir=None, audio_only=False, fit_audio=False):
     """Split the interleaved audio of `video`. Returns a dict with output paths."""
     M = MSG.get(lang, MSG["en"])
 
@@ -921,15 +925,15 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
                                 H=np.array([list(bytes(data[o + 7:o + 11]).ljust(4, b"\0")) for o, _ in frames], dtype=np.uint8))
 
         def stamp_m(sec):
-            return "%d:%04.1f" % (int(sec) // 60, sec - 60 * (int(sec) // 60))
+            return "%d:%06.3f" % (int(sec) // 60, sec - 60 * (int(sec) // 60))
 
         def stamp_s(sec):
             sec = int(sec)
             return "%d:%02d:%02d" % (sec // 3600, sec % 3600 // 60, sec % 60)
 
         def stamp(k):
-            sec = int(k * FRAME / sr / 2)      # position in the finished tracks (the mixed stream is twice as long)
-            return "%d:%02d:%02d" % (sec // 3600, sec % 3600 // 60, sec % 60)
+            sec = k * FRAME / sr / 2           # position in the finished tracks (the mixed stream is twice as long)
+            return "%d:%02d:%06.3f" % (int(sec) // 3600, int(sec) % 3600 // 60, sec % 60)
 
         est = find_schedule(s, m)
         if est is None:
@@ -1002,6 +1006,28 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             say("stretch", s=scale)
         elif vdur and max(dur_a, dur_b) - vdur > 0.02 * vdur:
             say("hint_stretch", d=(max(dur_a, dur_b) - vdur) / 60)
+        if fit_audio and vdur and not match_video:
+            # the other way round: the SOUND is sped up / slowed down (re-encoded, pitch stays) to the video length
+            for which in ("a", "b"):
+                src = fa if which == "a" else fb
+                ratio = (dur_a if which == "a" else dur_b) / vdur
+                if abs(ratio - 1.0) < 0.0005 or not 0.1 <= ratio <= 10.0:
+                    continue
+                tmp = src + ".fit"
+                chain, rest = [], ratio                    # one atempo filter handles 0.5 ... 2 only
+                while rest < 0.5 or rest > 2.0:
+                    step = 0.5 if rest < 0.5 else 2.0
+                    chain.append("atempo=%.1f" % step)
+                    rest /= step
+                chain.append("atempo=%.6f" % rest)
+                r = _run([ff, "-y", "-v", "error", "-i", src, "-af", ",".join(chain), "-c:a", "aac",
+                          "-b:a", "192k", "-f", "adts", tmp], text=True)
+                if r.returncode != 0:
+                    if "No space left" in (r.stderr or ""):
+                        raise SplitError(M["nospace"])
+                    raise SplitError(M["e_mux"].format(a=fa, b=fb))
+                os.replace(tmp, src)
+                say("fit", n="PC" if which == "a" else "Mic", r=ratio)
 
         vg = video_gaps(ff, video)
         if vg:
@@ -1035,15 +1061,6 @@ def process(video, ffmpeg=None, stream=0, swap=False, match_video=False, video_s
             if "No space left" in (r.stderr or ""):
                 raise SplitError(M["nospace"])
             raise SplitError(M["e_mux"].format(a=fa, b=fb))
-        chk = check_output(ff, out)
-        if chk:
-            if chk["starts"]:
-                say("starts", v=" / ".join(x[1] if len(x) > 1 else "?" for x in chk["starts"]))
-            for i, nm in ((0, "PC"), (1, "Mic")):
-                for st, du in chk["silent"][i][:10]:
-                    say("silent", n=nm, t=stamp_s(st), d=du)
-                for st, du in chk["silent"][i][:30]:
-                    listen.append((st, M["ev_silent"].format(n=nm, d=du)))
         ma, mb = fa.replace(".aac", ".m4a"), fb.replace(".aac", ".m4a")
         want = {fa: audio_which in ("both", "pc"), fb: audio_which in ("both", "mic")}
         for f in (fa, fb):

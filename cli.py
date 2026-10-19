@@ -14,6 +14,7 @@ def main():
     ap.add_argument("--match-video", action="store_true", help="stretch video timestamps to audio length")
     ap.add_argument("--video-scale", type=float, default=1.0, help="stretch video by this factor")
     ap.add_argument("--no-save-features", action="store_true", help="do not save the diagnostic .npz file")
+    ap.add_argument("--fit-audio", action="store_true", help="repair mode: change the sound tempo to the video length instead of stretching the video")
     ap.add_argument("--audio-only", action="store_true", help="repair mode: write only the two audio files, no video")
     ap.add_argument("--ffmpeg", help="path to ffmpeg")
     ap.add_argument("--lang", choices=["en", "ru"], default=None)
@@ -35,7 +36,7 @@ def main():
             return
         core.process(a.video, a.ffmpeg, a.stream, a.swap, a.match_video, a.video_scale,
                      not a.no_save_features, print, None, lang, not a.no_save_audio or a.audio_only,
-                     out_dir=a.out_dir, audio_only=a.audio_only)
+                     out_dir=a.out_dir, audio_only=a.audio_only, fit_audio=a.fit_audio)
     except core.SplitError as e:
         sys.exit(str(e))
 

@@ -7,7 +7,7 @@ tracks bit-exactly (and fills the lost parts with silence).
 
 Run:  python tests/test_synthetic.py        (needs ffmpeg)
 """
-import os
+import os, re
 import subprocess
 import sys
 import tempfile
@@ -110,6 +110,15 @@ def main():
     r6 = core.process(video, out_dir=od, lang="en")
     assert os.path.dirname(r6["video"]) == od and os.path.exists(r6["video"]), r6
     assert not [f for f in os.listdir(od) if f.startswith("_raw_")], os.listdir(od)
+    # sound fitted to the video length (re-encoded) instead of stretching the video
+    r8 = core.process(video, out_dir=os.path.join(tmp, "fit"), lang="en", match_video=False, fit_audio=True)
+    ff_ = core.find_ffmpeg()
+    def dur(path, sel):
+        o = subprocess.run([ff_, "-hide_banner", "-i", path, "-map", sel, "-f", "null", "-"], capture_output=True, text=True).stderr
+        h, m_, s_ = re.findall(r"time=(\d+):(\d+):([\d.]+)", o)[-1]
+        return int(h) * 3600 + int(m_) * 60 + float(s_)
+    dv = dur(r8["video"], "0:v:0")
+    assert abs(dur(r8["video"], "0:a:0") - dv) < 0.5 and abs(dur(r8["video"], "0:a:1") - dv) < 0.5, "fit_audio"
     # audio only: no video file, just the two tracks
     r7 = core.process(video, out_dir=os.path.join(tmp, "audio"), lang="en", audio_only=True)
     assert r7["video"] is None and os.path.exists(r7["pc"]) and os.path.exists(r7["mic"]), r7

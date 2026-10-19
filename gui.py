@@ -32,7 +32,7 @@ except Exception:  # pragma: no cover
     DND_FILES = TkinterDnD = None
     HAVE_DND = False
 
-APP_VERSION = "1.4.23"
+APP_VERSION = "1.4.24"
 
 # Where the "support the author" button leads. Leave empty to hide the button until a page exists.
 DONATE_URL = ""
@@ -52,7 +52,7 @@ RED = "#FF6B6B"
 # the GitHub mark (octicon, MIT licence) as an outline in a 16 x 16 box
 GH_PTS = [8, 0, 9.6, 0.2, 11.1, 0.6, 12.5, 1.4, 13.7, 2.3, 14.6, 3.5, 15.4, 4.9, 15.8, 6.4, 16, 8, 16, 8.8, 15.8, 9.7, 15.6, 10.4, 15.3, 11.2, 14.9, 12, 14.5, 12.7, 14, 13.3, 13.4, 13.9, 12.8, 14.4, 12.1, 14.9, 11.3, 15.3, 10.6, 15.6, 10.4, 15.6, 10.3, 15.6, 10.2, 15.6, 10.1, 15.5, 10.1, 15.4, 10, 15.4, 10, 15.3, 10, 15.2, 10, 15.1, 10, 14.9, 10, 14.7, 10, 14.4, 10, 14.1, 10, 13.8, 10, 13.4, 10, 13, 10, 12.7, 10, 12.5, 9.9, 12.3, 9.8, 12.1, 9.8, 11.9, 9.7, 11.8, 9.6, 11.6, 9.5, 11.5, 10.1, 11.4, 10.8, 11.3, 11.4, 11, 12, 10.6, 12.4, 10.1, 12.8, 9.5, 13, 8.6, 13.1, 7.6, 13.1, 7.3, 13.1, 7, 13, 6.7, 12.9, 6.4, 12.8, 6.1, 12.6, 5.9, 12.5, 5.7, 12.3, 5.4, 12.3, 5.3, 12.4, 5.2, 12.4, 5, 12.4, 4.7, 12.5, 4.4, 12.4, 4.1, 12.3, 3.7, 12.2, 3.3, 12.2, 3.3, 12.1, 3.3, 11.9, 3.3, 11.7, 3.3, 11.4, 3.4, 11, 3.6, 10.6, 3.8, 10, 4.1, 9.8, 4.1, 9.5, 4, 9.3, 4, 9, 3.9, 8.8, 3.9, 8.5, 3.9, 8.3, 3.9, 8, 3.9, 7.8, 3.9, 7.5, 3.9, 7.3, 3.9, 7, 3.9, 6.8, 4, 6.5, 4, 6.3, 4.1, 6, 4.1, 5.5, 3.8, 5, 3.6, 4.7, 3.4, 4.3, 3.3, 4.1, 3.3, 4, 3.3, 3.9, 3.3, 3.8, 3.3, 3.7, 3.7, 3.6, 4.1, 3.6, 4.4, 3.6, 4.7, 3.6, 5, 3.7, 5.2, 3.7, 5.3, 3.7, 5.4, 3.6, 5.7, 3.4, 5.9, 3.3, 6.1, 3.1, 6.4, 3, 6.7, 3, 7, 2.9, 7.3, 2.9, 7.6, 3, 8.6, 3.2, 9.5, 3.6, 10.1, 4.1, 10.6, 4.6, 11, 5.2, 11.3, 5.9, 11.4, 6.6, 11.5, 6.5, 11.6, 6.4, 11.7, 6.3, 11.8, 6.2, 11.9, 6.2, 12.1, 6.1, 12.2, 6.1, 12.4, 6, 12.6, 5.8, 12.7, 5.6, 12.8, 5.3, 12.8, 5, 12.8, 4.7, 12.7, 4.3, 12.6, 4, 12.3, 3.7, 11.9, 3.6, 11.8, 3.5, 11.7, 3.4, 11.6, 3.3, 11.4, 3.1, 11.3, 2.9, 11.2, 2.7, 11.1, 2.5, 11.1, 2.3, 11.1, 2.2, 11.2, 2.1, 11.2, 2.1, 11.3, 2.2, 11.4, 2.3, 11.5, 2.4, 11.6, 2.5, 11.7, 2.6, 11.7, 2.8, 11.9, 2.9, 12, 3, 12.2, 3.1, 12.4, 3.2, 12.5, 3.3, 12.7, 3.3, 12.8, 3.4, 13, 3.5, 13.2, 3.7, 13.4, 4, 13.6, 4.3, 13.7, 4.8, 13.8, 5.3, 13.8, 6, 13.7, 6, 14, 6, 14.2, 6, 14.4, 6, 14.6, 6, 14.8, 6, 15, 6, 15.1, 6, 15.2, 6, 15.3, 6, 15.4, 6, 15.4, 5.9, 15.5, 5.8, 15.6, 5.7, 15.6, 5.6, 15.6, 5.5, 15.6, 4.7, 15.3, 4, 14.9, 3.3, 14.4, 2.6, 13.9, 2, 13.3, 1.5, 12.7, 1.1, 12, 0.7, 11.2, 0.4, 10.5, 0.2, 9.7, 0, 8.8, -0, 8, 0.2, 6.4, 0.6, 4.9, 1.4, 3.5, 2.3, 2.3, 3.5, 1.4, 4.9, 0.6, 6.4, 0.2, 8, 0]
 
-W, H = 780, 700            # client size at 100 % scaling
+W, H = 780, 730            # client size at 100 % scaling
 
 UI = {
     "en": {
@@ -82,6 +82,7 @@ UI = {
         "stretch": "Stretch video to the audio length",
         "save": "Save audio tracks as separate files",
         "only_audio": "Audio only - no video file (saves disk space)",
+        "fit": "Fit the sound to the video length (re-encodes the sound)",
         "video_sound": "Sound in the video",
         "no_audio": "No sound",
         "all": "All",
@@ -143,6 +144,9 @@ UI = {
         "ffmpeg_missing": "Not found - it is needed to work with video",
         "ff_down": "Downloading ffmpeg... {p}%",
         "ff_dl": "Download",
+        "ff_new": "New version {v} is available",
+        "ff_upd": "Update",
+        "ff_ver": "Version {v}",
         "ff_fail": "Could not download ffmpeg automatically ({e}). Download it from https://www.gyan.dev/ffmpeg/builds/ "
                    "(essentials) and choose ffmpeg.exe in the settings.",
         "choose": "Choose...",
@@ -180,6 +184,7 @@ UI = {
         "stretch": "Растянуть видео под длину звука",
         "save": "Сохранить аудиодорожки отдельными файлами",
         "only_audio": "Только аудио - без видеофайла (экономит место)",
+        "fit": "Подогнать звук под длину видео (звук перекодируется)",
         "video_sound": "Звук в видео",
         "no_audio": "Без звука",
         "all": "Все",
@@ -241,6 +246,9 @@ UI = {
         "ffmpeg_missing": "Не найден - он нужен для работы с видео",
         "ff_down": "Скачиваю ffmpeg... {p}%",
         "ff_dl": "Скачать",
+        "ff_new": "Доступна новая версия {v}",
+        "ff_upd": "Обновить",
+        "ff_ver": "Версия {v}",
         "ff_fail": "Не удалось скачать ffmpeg автоматически ({e}). Скачайте его на https://www.gyan.dev/ffmpeg/builds/ "
                    "(essentials) и укажите ffmpeg.exe в настройках.",
         "choose": "Указать...",
@@ -272,6 +280,8 @@ class App:
         self.upd_pct = 0
         self.ff_state = "idle"             # idle / down / fail
         self.ff_pct = 0.0
+        self.ff_new = None                 # newer ffmpeg version (tuple) when our own copy is out of date
+        self.ff_cur = None
         updater.cleanup_old()
         self.ffmpeg = core.find_ffmpeg(self.cfg.get("ffmpeg")) or core.find_ffmpeg()
         self.settings_open = False
@@ -311,6 +321,7 @@ class App:
         self.stretch = True
         self.save = False
         self.audio_only = False
+        self.fitsnd = False
         self.save_choice = 0                # repair: 0 both / 1 PC / 2 mic ; extract: 0 all / i = track i
         self.keep_idx = 0                   # extract: 0 = no sound, i = track i stays in the video
         self.progress = 0.0
@@ -330,6 +341,8 @@ class App:
         self.root.after(1500, self.check_update)
         if not self.ffmpeg:
             self.root.after(800, self.download_ffmpeg)
+        else:
+            self.root.after(3000, self.check_ffmpeg_update)
         if preset:
             self.set_video(preset)
 
@@ -505,15 +518,17 @@ class App:
         y = 360
         if self.mode == 0:
             self.checkbox(110, y, t["swap"], self.swap, lambda: self.toggle("swap"), "swap", ok)
-            self.checkbox(110, y + 40, t["stretch"], self.stretch, lambda: self.toggle("stretch"), "stretch",
+            self.checkbox(110, y + 40, t["stretch"], self.stretch, lambda: self.toggle_fit("stretch"), "stretch",
                           ok and not self.audio_only)
-            self.checkbox(110, y + 80, t["save"], self.save or self.audio_only, lambda: self.toggle("save"),
+            self.checkbox(110, y + 80, t["fit"], self.fitsnd, lambda: self.toggle_fit("fitsnd"), "fit",
+                          ok and not self.audio_only)
+            self.checkbox(110, y + 120, t["save"], self.save or self.audio_only, lambda: self.toggle("save"),
                           "save", ok and not self.audio_only)
-            self.checkbox(110, y + 120, t["only_audio"], self.audio_only, lambda: self.toggle("audio_only"),
+            self.checkbox(110, y + 160, t["only_audio"], self.audio_only, lambda: self.toggle("audio_only"),
                           "audio_only", ok)
             if ok:
                 items = [t["all"], t["pc"], t["mic"]]
-                self.dropdown(670, y + 80, items[self.save_choice], items, self.save_choice, self.set_save_choice,
+                self.dropdown(670, y + 120, items[self.save_choice], items, self.save_choice, self.set_save_choice,
                               "save_dd")
         else:
             n = len(self.streams)
@@ -540,7 +555,7 @@ class App:
 
     def render_bottom(self, working):
         t = self.t
-        y0 = 460 if self.mode == 1 else 520
+        y0 = 460 if self.mode == 1 else 560
         self.start_y = y0
         if working:
             stopping = core.CANCEL.is_set()
@@ -830,13 +845,23 @@ class App:
         self.rrect(110, 250, 670, 350, 24, PANEL)
         self.text(134, 274, t["ffmpeg_title"], self.f_small, GRAY, "w")
         if self.ffmpeg:
-            self.text(134, 304, t["ffmpeg_installed"], self.f_med, GREEN, "w")
+            if not (self.ff_state == "down" or self.ff_new or self.ff_cur):
+                self.text(134, 304, t["ffmpeg_installed"], self.f_med, GREEN, "w")
             shown = self.ffmpeg if os.path.isabs(self.ffmpeg) else (shutil.which(self.ffmpeg) or self.ffmpeg)
             self.text(134, 330, self.fit(shown, self.f_tiny, 400), self.f_tiny, GRAY, "w")
+            if self.ff_state == "down":
+                self.text(134, 304, t["ff_down"].format(p=int(self.ff_pct * 100)), self.f_med, WHITE, "w")
+            elif self.ff_new:
+                self.text(134, 304, t["ff_new"].format(v=".".join(map(str, self.ff_new))), self.f_med, GREEN, "w")
+            elif self.ff_cur:
+                self.text(134, 304, t["ffmpeg_installed"] + "  -  " + t["ff_ver"].format(v=".".join(map(str, self.ff_cur))),
+                          self.f_med, GREEN, "w")
         elif self.ff_state == "down":
             self.text(134, 304, t["ff_down"].format(p=int(self.ff_pct * 100)), self.f_med, WHITE, "w")
         else:
             self.text(134, 304, self.fit(t["ffmpeg_missing"], self.f_med, 400), self.f_med, RED, "w")
+        if self.ffmpeg and self.ff_new and self.ff_state != "down":
+            self.pill(440, 290, 540, 322, t["ff_upd"], self.download_ffmpeg, "ffdl", fill=GREEN, font=self.f_small)
         if not self.ffmpeg and self.ff_state != "down" and os.name == "nt":
             self.pill(440, 290, 540, 322, t["ff_dl"], self.download_ffmpeg, "ffdl", fill=GREEN, font=self.f_small)
         self.pill(550, 290, 650, 322, t["choose"], self.choose_ffmpeg, "ffm", fill=BG, font=self.f_small)
@@ -931,6 +956,13 @@ class App:
         if key != self.hover:
             self.hover = key
             self.render()
+
+    def toggle_fit(self, name):
+        """Stretching the video and fitting the sound are two ways to the same end: only one of them."""
+        setattr(self, name, not getattr(self, name))
+        if getattr(self, name):
+            setattr(self, "fitsnd" if name == "stretch" else "stretch", False)
+        self.render()
 
     def toggle(self, name):
         setattr(self, name, not getattr(self, name))
@@ -1035,8 +1067,20 @@ class App:
             self.thumb = None
         self.render()
 
+    def check_ffmpeg_update(self):
+        """Our own downloaded ffmpeg is compared with the newest release (in the background)."""
+        if not self.ffmpeg or not core.is_own_ffmpeg(self.ffmpeg):
+            return
+        path = self.ffmpeg
+
+        def job():
+            cur, new = core.ffmpeg_version(path), core.latest_ffmpeg_version()
+            self.q.put(("ff_ver", (cur, new)))
+
+        threading.Thread(target=job, daemon=True).start()
+
     def download_ffmpeg(self):
-        if self.ffmpeg or self.ff_state == "down" or os.name != "nt":
+        if (self.ffmpeg and not self.ff_new) or self.ff_state == "down" or os.name != "nt":
             return
         self.ff_state, self.ff_pct = "down", 0.0
         self.render()
@@ -1089,7 +1133,7 @@ class App:
         opts = dict(mode=self.mode, video=self.video, ffmpeg=self.ffmpeg)
         if self.mode == 0:
             opts.update(swap=self.swap, stretch=self.stretch, save=self.save or self.audio_only,
-                        audio_only=self.audio_only,
+                        audio_only=self.audio_only, fit=self.fitsnd,
                         which=["both", "pc", "mic"][min(self.save_choice, 2)])
         else:
             if n == 1:
@@ -1143,7 +1187,8 @@ class App:
             else:
                 res = core.process(o["video"], ffmpeg=o["ffmpeg"], swap=o["swap"], match_video=o["stretch"],
                                    log=log, progress=prog, lang=self.lang, save_audio_files=o["save"],
-                                   audio_which=o["which"], out_dir=o["out_dir"], audio_only=o["audio_only"])
+                                   audio_which=o["which"], out_dir=o["out_dir"], audio_only=o["audio_only"],
+                                   fit_audio=o["fit"])
                 self.q.put(("listen", (res or {}).get("listen") or []))
             self.q.put(("done", o["video"]))
         except core.Cancelled:
@@ -1190,6 +1235,11 @@ class App:
                     self.upd = res
                     self.upd_state = "fail" if err and not res else "idle"
                     dirty = True
+                elif kind == "ff_ver":
+                    cur, new = val
+                    self.ff_cur = cur
+                    self.ff_new = new if (cur and new and new > cur) else None
+                    dirty = True
                 elif kind == "ff_pct":
                     self.ff_pct = float(val)
                     dirty = True
@@ -1198,6 +1248,8 @@ class App:
                     self.ff_state = "idle" if found else "fail"
                     if found:
                         self.ffmpeg = found
+                        self.ff_new = None
+                        self.ff_cur = core.ffmpeg_version(found)
                         if self.video:
                             self.set_video(self.video)
                     dirty = True
